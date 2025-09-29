@@ -7,6 +7,7 @@
 // Set up an express application to run the server
 const express = require("express");
 const app = express();
+const { Pool } = require('pg'); // <-- ADD a PG Pool
 
 // tell our express application to serve the 'public' folder
 app.use(express.static("public"));
@@ -20,27 +21,41 @@ const server = app.listen(port, "0.0.0.0", () => {
 // We will use the socket.io library to manage Websocket connections
 const io = require("socket.io")().listen(server);
 
-// add the path module at the top of the file
-const path = require("path");
+// --- DATABASE SETUP ---
+// Create a Pool to manage database connections.
+// It automatically uses the DATABASE_URL environment variable on Render.
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // On Render, we need to enable SSL but not reject unauthorized connections
+  // For local development, you might not need SSL.
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
+});
 
-// ... then, where you define the database:
-
-// add the database application 'nedb'
-const Datastore = require("nedb");
-
-// Define the directory for our persistent data.
-// Render sets the RENDER_DISK_MOUNT_PATH environment variable.
-// If it's not set, we'll just use the current directory for local development.
-const dataDirectory = process.env.RENDER_DISK_MOUNT_PATH || __dirname;
-const dbFilePath = path.join(dataDirectory, "mydatabase.json");
-
-// Create the database, ensuring it saves to the correct path.
-const db = new Datastore({ filename: dbFilePath, autoload: true });
+// Function to ensure our 'boxes' table exists
+async function initializeDatabase() {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS boxes (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(50),
+        data JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    console.log("Database initialized and 'boxes' table is ready.");
+  } catch (err) {
+    console.error("Error initializing database:", err);
+  } finally {
+    client.release();
+  }
+}
 
 // We will use this object to store information about active peers
 let peers = {};
 
 function main() {
+  initializeDatabase(); // <-- Run the database setup
   setupSocketServer();
 
   // periodically update all peers with their positions
@@ -51,9 +66,9 @@ function main() {
 
 main();
 
-function setupSocketServer() {
+async function setupSocketServer() {
   // Set up each socket connection
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     console.log(
       "Peer joined with ID",
       socket.id,
@@ -66,25 +81,19 @@ function setupSocketServer() {
       rotation: [0, 0, 0, 1], // stored as XYZW values of Quaternion
     };
 
-    // send the new peer a list of all other peers
     socket.emit("introduction", Object.keys(peers));
-
-    // also give the peer all existing peers positions:
     socket.emit("userPositions", peers);
 
-    // also give them existing data in the database
-    db.find({}, (err, docs) => {
-      if (err) return;
-      for (let i = 0; i < docs.length; i++) {
-        let doc = docs[i];
-        socket.emit("data", doc);
-      }
-    });
+    // --- MODIFIED: Get existing boxes from PostgreSQL ---
+    try {
+      const result = await pool.query('SELECT type, data FROM boxes ORDER BY created_at ASC');
+      result.rows.forEach(row => socket.emit("data", row));
+    } catch (err) {
+      console.error("Error fetching data from DB:", err);
+    }
 
-    // tell everyone that a new user connected
     io.emit("peerConnection", socket.id);
 
-    // whenever the peer moves, update their movements in the peers object
     socket.on("move", (data) => {
       if (peers[socket.id]) {
         peers[socket.id].position = data[0];
@@ -92,16 +101,16 @@ function setupSocketServer() {
       }
     });
 
-    // setup a generic ping-pong which can be used to share arbitrary info between peers
-    socket.on("data", (data) => {
-      // insert data into the database
-      db.insert(data);
-
-      // then send it to all peers
-      io.sockets.emit("data", data);
+    // --- MODIFIED: Save new boxes to PostgreSQL ---
+    socket.on("data", async (data) => {
+      try {
+        await pool.query('INSERT INTO boxes (type, data) VALUES ($1, $2)', [data.type, data.data]);
+        io.sockets.emit("data", data);
+      } catch (err) {
+        console.error("Error saving data to DB:", err);
+      }
     });
 
-    // Relay simple-peer signals back and forth
     socket.on("signal", (to, from, data) => {
       if (to in peers) {
         io.to(to).emit("signal", to, from, data);
@@ -110,16 +119,11 @@ function setupSocketServer() {
       }
     });
 
-    // handle disconnections
     socket.on("disconnect", () => {
       delete peers[socket.id];
       io.sockets.emit("peerDisconnection", socket.id);
       console.log(
-        "Peer " +
-          socket.id +
-          " diconnected, there are " +
-          io.engine.clientsCount +
-          " peer(s) connected."
+        "Peer " + socket.id + " diconnected, there are " + io.engine.clientsCount + " peer(s) connected."
       );
     });
   });

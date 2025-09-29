@@ -3,16 +3,16 @@
   "version": "1.0.0",
   "description": "Template for using three.js with socket.io and WebRTC",
   "main": "server.js",
-"scripts": {
-  "test": "echo \"Error: no test specified\" && exit 1",
-  "start": "node server.js",
-  "dev": "nodemon --ignore ./public/ server.js --ignore ./mydatabase.json"
-},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon --ignore ./public/ server.js --ignore ./mydatabase.json"
+  },
   "author": "",
   "license": "MIT",
   "dependencies": {
     "express": "^4.21.2",
-    "nedb": "^1.8.0",
+    "pg": "^8.16.3",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
