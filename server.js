@@ -13,16 +13,29 @@ app.use(express.static("public"));
 
 // tell the server to listen on a given port
 const port = process.env.PORT || 8080;
-const server = app.listen(port);
-console.log("Webserver is running on http://localhost:" + port);
+const server = app.listen(port, "0.0.0.0", () => {
+  console.log("Webserver is running on http://0.0.0.0:" + port);
+});
 
 // We will use the socket.io library to manage Websocket connections
 const io = require("socket.io")().listen(server);
 
+// add the path module at the top of the file
+const path = require("path");
+
+// ... then, where you define the database:
+
 // add the database application 'nedb'
 const Datastore = require("nedb");
-// create our database and save it to a local file
-const db = new Datastore({ filename: "mydatabase.json", autoload: true });
+
+// Define the directory for our persistent data.
+// Render sets the RENDER_DISK_MOUNT_PATH environment variable.
+// If it's not set, we'll just use the current directory for local development.
+const dataDirectory = process.env.RENDER_DISK_MOUNT_PATH || __dirname;
+const dbFilePath = path.join(dataDirectory, "mydatabase.json");
+
+// Create the database, ensuring it saves to the correct path.
+const db = new Datastore({ filename: dbFilePath, autoload: true });
 
 // We will use this object to store information about active peers
 let peers = {};

@@ -74,6 +74,8 @@ export class Communications {
 
     try {
       stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      // Keep track of the local stream
+      this.localStream = stream;
     } catch (err) {
       console.log("Failed to get user media!");
       console.warn(err);

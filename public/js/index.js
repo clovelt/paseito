@@ -271,3 +271,22 @@ function onNewBox(msg) {
 
   scene.add(mesh);
 }
+
+//////////////////////////////////////////////////////////////////////
+// Mute
+//////////////////////////////////////////////////////////////////////
+
+let micEnabled = true;
+function toggleMic() {
+  if (!communications.localStream) return;
+  const track = communications.localStream.getAudioTracks()[0];
+  track.enabled = !track.enabled;
+  micEnabled = track.enabled;
+  console.log("Microphone:", micEnabled ? "ON" : "OFF");
+}
+
+window.addEventListener("keyup", (ev) => {
+  if (ev.key === "m") {
+    toggleMic();
+  }
+});
