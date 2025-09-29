@@ -38,7 +38,7 @@ function init() {
   // --- LOAD THE MODEL ---
   const loader = new GLTFLoader(loadingManager);
   loader.load(
-    './models/mansion.glb', // Path to your model
+    './models/wuhu_island_-_wii_sports_resort.glb', // Path to your model
     (gltf) => {
       const model = gltf.scene;
       scene.add(model);
