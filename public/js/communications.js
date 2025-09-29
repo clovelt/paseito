@@ -121,7 +121,7 @@ export class Communications {
 
   initSocketConnection() {
     console.log("Initializing socket.io...");
-    this.socket = io("https://paseito.onrender.com");
+    this.socket = io(window.location.origin);
 
     this.socket.on("connect", () => {
       console.log("My socket ID:", this.socket.id);

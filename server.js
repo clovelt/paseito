@@ -4,93 +4,82 @@
  *
  */
 
-// Set up an express application to run the server
 const express = require("express");
 const app = express();
-const { Pool } = require('pg'); // <-- ADD a PG Pool
 
-// tell our express application to serve the 'public' folder
-app.use(express.static("public"));
+let db;
 
-// tell the server to listen on a given port
-const port = process.env.PORT || 8080;
-const server = app.listen(port, "0.0.0.0", () => {
-  console.log("Webserver is running on http://0.0.0.0:" + port);
-});
+// Check if we are in a production environment (like Render)
+// The DATABASE_URL is only set on Render.
+if (process.env.DATABASE_URL) {
+  // --- PRODUCTION CODE ---
+  // Only require 'pg' if we are in production. This prevents local crashes.
+  const { Pool } = require('pg');
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
 
-// We will use the socket.io library to manage Websocket connections
-const io = require("socket.io")().listen(server);
+  // Create the real database interface
+  db = {
+    initialize: async () => {
+      await pool.query(`CREATE TABLE IF NOT EXISTS boxes (id SERIAL PRIMARY KEY, type VARCHAR(50), data JSONB);`);
+      console.log("SUCCESS: Connected to PostgreSQL database.");
+    },
+    find: async (callback) => {
+      const result = await pool.query('SELECT type, data FROM boxes');
+      callback(null, result.rows);
+    },
+    insert: async (doc, callback) => {
+      await pool.query('INSERT INTO boxes (type, data) VALUES ($1, $2)', [doc.type, doc.data]);
+      if (callback) callback(null, doc);
+    }
+  };
 
-// --- DATABASE SETUP ---
-// Create a Pool to manage database connections.
-// It automatically uses the DATABASE_URL environment variable on Render.
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // On Render, we need to enable SSL but not reject unauthorized connections
-  // For local development, you might not need SSL.
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
-});
+  db.initialize().catch(err => console.error("Database initialization failed:", err));
 
-// Function to ensure our 'boxes' table exists
-async function initializeDatabase() {
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS boxes (
-        id SERIAL PRIMARY KEY,
-        type VARCHAR(50),
-        data JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-    console.log("Database initialized and 'boxes' table is ready.");
-  } catch (err) {
-    console.error("Error initializing database:", err);
-  } finally {
-    client.release();
-  }
+} else {
+  // --- LOCAL DEVELOPMENT CODE ---
+  console.warn("WARNING: No DATABASE_URL found. Database features are disabled for local testing.");
+  // Create a fake database object that does nothing but prevents crashes.
+  db = {
+    find: (query, callback) => callback(null, []), // Always return empty array
+    insert: (doc, callback) => { if (callback) callback(null, doc); } // Pretend to save
+  };
 }
 
-// We will use this object to store information about active peers
+app.use(express.static("public"));
+
+const port = process.env.PORT || 8080;
+const server = app.listen(port, "0.0.0.0", () => {
+  console.log(`Webserver is running on http://0.0.0.0:${port}`);
+});
+
+const io = require("socket.io")().listen(server);
 let peers = {};
 
 function main() {
-  initializeDatabase(); // <-- Run the database setup
   setupSocketServer();
-
-  // periodically update all peers with their positions
-  setInterval(function () {
+  setInterval(() => {
     io.sockets.emit("positions", peers);
   }, 100);
 }
 
 main();
 
-async function setupSocketServer() {
-  // Set up each socket connection
-  io.on("connection", async (socket) => {
-    console.log(
-      "Peer joined with ID",
-      socket.id,
-      ". There are " + io.engine.clientsCount + " peer(s) connected."
-    );
+function setupSocketServer() {
+  io.on("connection", (socket) => {
+    console.log(`Peer joined with ID ${socket.id}. There are ${io.engine.clientsCount} peer(s) connected.`);
 
-    // add a new peer indexed by their socket id
-    peers[socket.id] = {
-      position: [0, 0.5, 0],
-      rotation: [0, 0, 0, 1], // stored as XYZW values of Quaternion
-    };
+    peers[socket.id] = { position: [0, 0.5, 0], rotation: [0, 0, 0, 1] };
 
     socket.emit("introduction", Object.keys(peers));
     socket.emit("userPositions", peers);
 
-    // --- MODIFIED: Get existing boxes from PostgreSQL ---
-    try {
-      const result = await pool.query('SELECT type, data FROM boxes ORDER BY created_at ASC');
-      result.rows.forEach(row => socket.emit("data", row));
-    } catch (err) {
-      console.error("Error fetching data from DB:", err);
-    }
+    db.find({}, (err, docs) => {
+      if (err) return console.error("DB find error:", err);
+      if (docs) docs.forEach(doc => socket.emit("data", doc));
+    });
 
     io.emit("peerConnection", socket.id);
 
@@ -101,30 +90,21 @@ async function setupSocketServer() {
       }
     });
 
-    // --- MODIFIED: Save new boxes to PostgreSQL ---
-    socket.on("data", async (data) => {
-      try {
-        await pool.query('INSERT INTO boxes (type, data) VALUES ($1, $2)', [data.type, data.data]);
+    socket.on("data", (data) => {
+      db.insert(data, (err) => {
+        if (err) return console.error("DB insert error:", err);
         io.sockets.emit("data", data);
-      } catch (err) {
-        console.error("Error saving data to DB:", err);
-      }
+      });
     });
 
     socket.on("signal", (to, from, data) => {
-      if (to in peers) {
-        io.to(to).emit("signal", to, from, data);
-      } else {
-        console.log("Peer not found!");
-      }
+      if (to in peers) io.to(to).emit("signal", to, from, data);
     });
 
     socket.on("disconnect", () => {
       delete peers[socket.id];
       io.sockets.emit("peerDisconnection", socket.id);
-      console.log(
-        "Peer " + socket.id + " diconnected, there are " + io.engine.clientsCount + " peer(s) connected."
-      );
+      console.log(`Peer ${socket.id} diconnected, there are ${io.engine.clientsCount} peer(s) connected.`);
     });
   });
 }
