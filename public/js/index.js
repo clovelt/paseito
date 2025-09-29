@@ -69,6 +69,21 @@ function init() {
     }
   });
 
+  const micButton = document.getElementById('mic-button');
+  const cameraButton = document.getElementById('camera-button');
+
+  micButton.addEventListener('click', () => {
+    const isEnabled = communications.toggleMic();
+    micButton.classList.toggle('active', isEnabled);
+    micButton.innerHTML = isEnabled ? '<i class="fa-solid fa-microphone"></i>' : '<i class="fa-solid fa-microphone-slash"></i>';
+  });
+
+  cameraButton.addEventListener('click', () => {
+    const isEnabled = communications.toggleCamera();
+    cameraButton.classList.toggle('active', isEnabled);
+    cameraButton.innerHTML = isEnabled ? '<i class="fa-solid fa-video"></i>' : '<i class="fa-solid fa-video-slash"></i>';
+  });
+
   //Push the canvas to the DOM
   let domElement = document.getElementById("canvas-container");
   domElement.append(renderer.domElement);
@@ -271,22 +286,3 @@ function onNewBox(msg) {
 
   scene.add(mesh);
 }
-
-//////////////////////////////////////////////////////////////////////
-// Mute
-//////////////////////////////////////////////////////////////////////
-
-let micEnabled = true;
-function toggleMic() {
-  if (!communications.localStream) return;
-  const track = communications.localStream.getAudioTracks()[0];
-  track.enabled = !track.enabled;
-  micEnabled = track.enabled;
-  console.log("Microphone:", micEnabled ? "ON" : "OFF");
-}
-
-window.addEventListener("keyup", (ev) => {
-  if (ev.key === "m") {
-    toggleMic();
-  }
-});

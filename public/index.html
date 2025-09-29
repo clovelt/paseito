@@ -8,6 +8,8 @@
       content="initial-scale=1,maximum-scale=1,user-scalable=no"
     />
 
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/libs/simplepeer.min.js"></script>
 
@@ -25,11 +27,36 @@
       body {
         overflow: hidden;
       }
+      .control-button {
+        position: absolute;
+        top: 20px;
+        z-index: 10;
+        background-color: rgba(0, 0, 0, 0.5);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        width: 50px;
+        height: 50px;
+        font-size: 24px;
+        cursor: pointer;
+      }
+      .control-button.active {
+        background-color: rgba(255, 255, 255, 0.7);
+        color: black;
+      }
     </style>
   </head>
 
   <body style="background: yellow; margin: 0; padding: 0">
     <div id="canvas-container"></div>
+    <div id="controls-container">
+      <button id="mic-button" class="control-button active" style="right: 80px;">
+        <i class="fa-solid fa-microphone"></i>
+      </button>
+      <button id="camera-button" class="control-button active" style="right: 20px;">
+        <i class="fa-solid fa-video"></i>
+      </button>
+    </div>
     <div id="joystick-container" style="position: absolute; bottom: 50px; left: 50px; width: 150px; height: 150px;"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
   </body>

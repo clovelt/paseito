@@ -155,7 +155,7 @@ export class FirstPersonControls {
         )
 
 
-
+        // mouse
         this.renderer.domElement.addEventListener(
             'mousedown',
             (e) => {
@@ -177,6 +177,41 @@ export class FirstPersonControls {
             },
             false
         )
+
+        // touch
+        this.renderer.domElement.addEventListener(
+            'touchstart',
+            (e) => {
+                // Prevent the browser from scrolling
+                e.preventDefault();
+                // We only care about the first touch to control the camera
+                if (e.touches.length === 1) {
+                    this.onDocumentMouseDown(e.touches[0]);
+                }
+            },
+            { passive: false } // passive: false is needed for preventDefault()
+        );
+
+        this.renderer.domElement.addEventListener(
+            'touchmove',
+            (e) => {
+                e.preventDefault();
+                if (e.touches.length === 1) {
+                    this.onDocumentMouseMove(e.touches[0]);
+                }
+            },
+            { passive: false }
+        );
+
+        this.renderer.domElement.addEventListener(
+            'touchend',
+            (e) => {
+                this.onDocumentMouseUp(e);
+            },
+            false
+        );
+
+
     }
 
     // clear control state every time we reenter the game

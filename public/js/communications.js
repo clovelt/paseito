@@ -84,6 +84,28 @@ export class Communications {
     return stream;
   }
 
+  toggleMic() {
+    if (!this.localMediaStream) return false;
+    
+    const audioTracks = this.localMediaStream.getAudioTracks();
+    if (audioTracks.length > 0) {
+      audioTracks[0].enabled = !audioTracks[0].enabled;
+      return audioTracks[0].enabled;
+    }
+    return false;
+  }
+
+  toggleCamera() {
+    if (!this.localMediaStream) return false;
+
+    const videoTracks = this.localMediaStream.getVideoTracks();
+    if (videoTracks.length > 0) {
+      videoTracks[0].enabled = !videoTracks[0].enabled;
+      return videoTracks[0].enabled;
+    }
+    return false;
+  }
+
   // temporarily pause the outgoing stream
   disableOutgoingStream() {
     this.localMediaStream.getTracks().forEach((track) => {
@@ -99,7 +121,7 @@ export class Communications {
 
   initSocketConnection() {
     console.log("Initializing socket.io...");
-    this.socket = io();
+    this.socket = io("https://paseito.onrender.com");
 
     this.socket.on("connect", () => {
       console.log("My socket ID:", this.socket.id);
