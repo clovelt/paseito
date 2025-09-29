@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { Communications } from "./communications.js";
 import { FirstPersonControls } from "./libs/firstPersonControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // lerp value to be used when interpolating positions and rotations
 let lerpValue = 0;
@@ -18,17 +19,54 @@ let communications;
 
 let frameCount = 0;
 let peers = {};
+const userListContainer = document.getElementById('user-list-container');
 
 function init() {
   scene = new THREE.Scene();
+
+  const loadingManager = new THREE.LoadingManager();
+  loadingManager.onLoad = () => {
+    console.log("All assets loaded!");
+  };
+  loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => {
+    console.log(`Loading file: ${url}. \nLoaded ${itemsLoaded} of ${itemsTotal} files.`);
+  };
+  loadingManager.onError = (url) => {
+    console.error(`There was an error loading ${url}`);
+  };
+
+  // --- LOAD THE MODEL ---
+  const loader = new GLTFLoader(loadingManager);
+  loader.load(
+    './models/mansion.glb', // Path to your model
+    (gltf) => {
+      const model = gltf.scene;
+      scene.add(model);
+      console.log("Model added to the scene");
+
+      // Optional: Make all parts of the model cast/receive shadows if you add lights
+      model.traverse((node) => {
+        if (node.isMesh) {
+          node.castShadow = true;
+          node.receiveShadow = true;
+        }
+      });
+    },
+    undefined, // onProgress callback (already handled by loadingManager)
+    (error) => {
+      console.error('An error happened while loading the model:', error);
+    }
+  );
 
   communications = new Communications();
 
   communications.on("peerJoined", (id) => {
     addPeer(id);
+    addUserToList(id);
   });
   communications.on("peerLeft", (id) => {
     removePeer(id);
+    removeUserFromList(id);
   });
   communications.on("positions", (positions) => {
     updatePeerPositions(positions);
@@ -92,7 +130,7 @@ function init() {
   window.addEventListener("resize", (e) => onWindowResize(e), false);
 
   // Helpers
-  scene.add(new THREE.GridHelper(500, 500));
+  //scene.add(new THREE.GridHelper(500, 500));
   scene.add(new THREE.AxesHelper(10));
 
   addLights();
@@ -285,4 +323,25 @@ function onNewBox(msg) {
   mesh.position.set(pos.x, pos.y, pos.z);
 
   scene.add(mesh);
+}
+
+// Function to add a user to our new UI list
+function addUserToList(id, isLocal = false) {
+    const userItem = document.createElement('div');
+    userItem.id = 'useritem-' + id;
+    userItem.className = 'user-list-item';
+
+    let name = isLocal ? 'You' : id.substring(0, 6);
+    let icon = isLocal ? 'fa-user' : 'fa-headset';
+    
+    userItem.innerHTML = `<i class="fa-solid ${icon}"></i> ${name}`;
+    userListContainer.appendChild(userItem);
+}
+
+// Function to remove a user from our new UI list
+function removeUserFromList(id) {
+    const userItem = document.getElementById('useritem-' + id);
+    if (userItem) {
+        userItem.remove();
+    }
 }
