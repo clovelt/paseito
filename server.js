@@ -26,7 +26,7 @@ if (process.env.DATABASE_URL) {
       await pool.query(`CREATE TABLE IF NOT EXISTS boxes (id SERIAL PRIMARY KEY, type VARCHAR(50), data JSONB);`);
       console.log("SUCCESS: Connected to PostgreSQL database.");
     },
-    find: async (callback) => {
+    find: async (query, callback) => {
       const result = await pool.query('SELECT type, data FROM boxes');
       callback(null, result.rows);
     },
