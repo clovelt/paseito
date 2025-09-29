@@ -38,7 +38,7 @@ function init() {
   // --- LOAD THE MODEL ---
   const loader = new GLTFLoader(loadingManager);
   loader.load(
-    './models/resort.glb', // Path to model
+    'http://gustavochico.com/paseito/resort.glb', // Path to model
     (gltf) => {
       const model = gltf.scene;
       scene.add(model);
