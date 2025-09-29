@@ -31,6 +31,10 @@ export class FirstPersonControls {
         this.isUserInteracting = false
         this.camera.target = new THREE.Vector3(0, 0, 0)
 
+        if ('ontouchstart' in window) {
+            this.setupJoystick();
+        }
+
     }
 
     pause() {
@@ -38,6 +42,38 @@ export class FirstPersonControls {
     }
     resume() {
         this.paused = false
+    }
+
+    setupJoystick() {
+        const options = {
+            zone: document.getElementById('joystick-container'),
+            mode: 'static',
+            position: { left: '50%', top: '50%' },
+            color: 'white',
+            size: 150
+        };
+
+        const manager = nipplejs.create(options);
+
+        manager.on('move', (evt, data) => {
+            // Use the joystick's angle and force to determine movement
+            if (data.angle && data.force > 0.3) { // 0.3 threshold to prevent accidental movement
+                const angle = data.angle.radian;
+                // Determine direction based on angle
+                this.moveForward = Math.sin(angle) > 0;
+                this.moveBackward = Math.sin(angle) < 0;
+                this.moveLeft = Math.cos(angle) < 0;
+                this.moveRight = Math.cos(angle) > 0;
+            }
+        });
+
+        manager.on('end', () => {
+            // Stop all movement when the joystick is released
+            this.moveForward = false;
+            this.moveBackward = false;
+            this.moveLeft = false;
+            this.moveRight = false;
+        });
     }
 
     // Set up pointer lock controls and corresponding event listeners
