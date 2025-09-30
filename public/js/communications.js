@@ -202,12 +202,31 @@ export class Communications {
     console.log("Connecting to peer with ID", theirSocketId);
     console.log("initiating?", isInitiator);
 
-    let peerConnection = new SimplePeer({ initiator: isInitiator });
-    // simplepeer generates signals which need to be sent across socket
-    peerConnection.on("signal", (data) => {
-      // console.log('signal');
-      this.socket.emit("signal", theirSocketId, this.socket.id, data);
+    const configuration = {
+      iceServers: [
+        {
+          urls: 'stun:stun.l.google.com:19302'
+        },
+        {
+          urls: 'stun:global.stun.twilio.com:3478'
+        },
+        {
+          urls: [
+            "turn:openrelay.metered.ca:80",
+            "turn:openrelay.metered.ca:443"
+          ],
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ]
+    };
+
+    // Pass the new configuration to SimplePeer
+    let peerConnection = new SimplePeer({
+        initiator: isInitiator,
+        config: configuration
     });
+
 
     // When we have a connection, send our stream
     peerConnection.on("connect", () => {
