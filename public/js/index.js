@@ -160,7 +160,7 @@ function addPeer(id) {
 
   let videoMaterial = new THREE.MeshBasicMaterial({
     map: videoTexture,
-    overdraw: true,
+    //overdraw: true,
     side: THREE.DoubleSide,
   });
   let otherMat = new THREE.MeshNormalMaterial();

@@ -221,19 +221,26 @@ export class Communications {
       ]
     };
 
-    // Pass the new configuration to SimplePeer
     let peerConnection = new SimplePeer({
         initiator: isInitiator,
         config: configuration
     });
 
+    peerConnection.on("signal", (data) => {
+        this.socket.emit("signal", theirSocketId, this.socket.id, data);
+    });
 
     // When we have a connection, send our stream
     peerConnection.on("connect", () => {
-      // Let's give them our stream
-      peerConnection.addStream(this.localMediaStream);
-      console.log("Send our stream");
+        if (this.localMediaStream) {
+            this.localMediaStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, this.localMediaStream);
+            });
+            console.log("Sent our tracks");
+        }
+        // peerConnection.addStream(this.localMediaStream); // use the modern addTrack() API
     });
+
 
     // Stream coming in to us
     peerConnection.on("stream", (stream) => {
