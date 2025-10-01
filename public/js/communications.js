@@ -73,24 +73,55 @@ export class Communications {
     let stream = null;
 
     try {
+      // Access media devices
       stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-      // Keep track of the local stream
-      this.localStream = stream;
     } catch (err) {
       console.log("Failed to get user media!");
       console.warn(err);
+      // Create a dummy stream if media access fails
+      stream = this.createDummyStream();
     }
 
+    // Keep track of the local stream regardless of success
+    this.localStream = stream;
     return stream;
   }
+  
+  // --- NEW: DUMMY STREAM FUNCTION ---
+  createDummyStream() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, 1, 1);
+    const videoStream = canvas.captureStream(1); // 1 fps
+    
+    // Create a silent audio track
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const dst = oscillator.connect(audioContext.createMediaStreamDestination());
+    oscillator.start();
+    const audioStream = dst.stream;
+
+    const dummyStream = new MediaStream([
+      videoStream.getVideoTracks()[0],
+      audioStream.getAudioTracks()[0],
+    ]);
+    return dummyStream;
+  }
+
 
   toggleMic() {
     if (!this.localMediaStream) return false;
     
     const audioTracks = this.localMediaStream.getAudioTracks();
     if (audioTracks.length > 0) {
-      audioTracks[0].enabled = !audioTracks[0].enabled;
-      return audioTracks[0].enabled;
+      // Check if it's not the dummy track
+      if (audioTracks[0].label !== 'MediaStreamAudioDestinationNode') {
+         audioTracks[0].enabled = !audioTracks[0].enabled;
+         return audioTracks[0].enabled;
+      }
     }
     return false;
   }
@@ -100,8 +131,11 @@ export class Communications {
 
     const videoTracks = this.localMediaStream.getVideoTracks();
     if (videoTracks.length > 0) {
-      videoTracks[0].enabled = !videoTracks[0].enabled;
-      return videoTracks[0].enabled;
+      // Check if it's not the dummy track
+      if (videoTracks[0].label !== 'canvas') {
+        videoTracks[0].enabled = !videoTracks[0].enabled;
+        return videoTracks[0].enabled;
+      }
     }
     return false;
   }
@@ -272,14 +306,18 @@ function createPeerDOMElements(_id) {
 }
 
 function updatePeerDOMElements(_id, stream) {
-  let videoStream = new MediaStream([stream.getVideoTracks()[0]]);
-  let audioStream = new MediaStream([stream.getAudioTracks()[0]]);
+  if (!stream) return;
+  
+  const videoTrack = stream.getVideoTracks()[0];
+  const audioTrack = stream.getAudioTracks()[0];
 
-  if (videoStream) {
+  if (videoTrack) {
+    let videoStream = new MediaStream([videoTrack]);
     const videoElement = document.getElementById(_id + "_video");
     videoElement.srcObject = videoStream;
   }
-  if (audioStream) {
+  if (audioTrack) {
+    let audioStream = new MediaStream([audioTrack]);
     let audioEl = document.getElementById(_id + "_audio");
     audioEl.srcObject = audioStream;
   }
