@@ -215,22 +215,17 @@ export class Communications {
 
     let peerConnection = new SimplePeer({
         initiator: isInitiator,
-        config: configuration
+        config: configuration,
+        stream: this.localMediaStream
     });
 
     peerConnection.on("signal", (data) => {
         this.socket.emit("signal", theirSocketId, this.socket.id, data);
     });
 
-    // When we have a connection, send our stream
+    // When we have a connection, this will fire
     peerConnection.on("connect", () => {
-        if (this.localMediaStream) {
-            this.localMediaStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, this.localMediaStream);
-            });
-            console.log("Sent our tracks");
-        }
-        // peerConnection.addStream(this.localMediaStream); // use the modern addTrack() API
+        console.log("PEER CONNECTION ESTABLISHED");
     });
 
 
