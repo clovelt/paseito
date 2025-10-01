@@ -17,11 +17,13 @@ export class Communications {
 
     this.initialize();
 
+    // --- SOLUTION: Restore the initialization of the event callbacks object ---
     this.userDefinedCallbacks = {
       peerJoined: [],
       peerLeft: [],
       positions: [],
       data: [],
+      clearAllObjects: [] // Add the new event for the admin panel
     };
   }
 
@@ -29,7 +31,6 @@ export class Communications {
     // first get user media
     this.localMediaStream = await this.getLocalMedia();
 
-    // createLocalVideoElement();
     createPeerDOMElements("local");
     updatePeerDOMElements("local", this.localMediaStream);
 
@@ -87,7 +88,6 @@ export class Communications {
     return stream;
   }
   
-  // --- NEW: DUMMY STREAM FUNCTION ---
   createDummyStream() {
     const canvas = document.createElement('canvas');
     canvas.width = 1;
@@ -97,7 +97,6 @@ export class Communications {
     ctx.fillRect(0, 0, 1, 1);
     const videoStream = canvas.captureStream(1); // 1 fps
     
-    // Create a silent audio track
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const dst = oscillator.connect(audioContext.createMediaStreamDestination());
@@ -117,7 +116,6 @@ export class Communications {
     
     const audioTracks = this.localMediaStream.getAudioTracks();
     if (audioTracks.length > 0) {
-      // Check if it's not the dummy track
       if (audioTracks[0].label !== 'MediaStreamAudioDestinationNode') {
          audioTracks[0].enabled = !audioTracks[0].enabled;
          return audioTracks[0].enabled;
@@ -131,7 +129,6 @@ export class Communications {
 
     const videoTracks = this.localMediaStream.getVideoTracks();
     if (videoTracks.length > 0) {
-      // Check if it's not the dummy track
       if (videoTracks[0].label !== 'canvas') {
         videoTracks[0].enabled = !videoTracks[0].enabled;
         const localVideo = document.getElementById('local_video');
@@ -142,13 +139,11 @@ export class Communications {
     return false;
   }
 
-  // temporarily pause the outgoing stream
   disableOutgoingStream() {
     this.localMediaStream.getTracks().forEach((track) => {
       track.enabled = false;
     });
   }
-  // enable the outgoing stream
   enableOutgoingStream() {
     this.localMediaStream.getTracks().forEach((track) => {
       track.enabled = true;
@@ -165,6 +160,11 @@ export class Communications {
 
     this.socket.on("data", (data) => {
       this.callEventCallback("data", data);
+    });
+    
+    // --- SOLUTION: Listen for clear event from server ---
+    this.socket.on("clearAllObjects", () => {
+        this.callEventCallback("clearAllObjects");
     });
 
 
@@ -185,7 +185,6 @@ export class Communications {
       }
     });
 
-    // when a new user has entered the server
     this.socket.on("peerConnection", (theirId) => {
       if (theirId != this.socket.id && !(theirId in this.peers)) {
         this.peers[theirId] = {};
@@ -203,37 +202,25 @@ export class Communications {
     });
 
     this.socket.on("signal", (to, from, data) => {
-      // console.log("Got a signal from the server: ", to, from, data);
-
-      // to should be us
       if (to != this.socket.id) {
         console.log("Socket IDs don't match");
       }
 
-      // Look for the right simplepeer in our array
       let peer = this.peers[from];
       if (peer.peerConnection) {
         peer.peerConnection.signal(data);
       } else {
-        console.log("Never found right simplepeer object");
-        // Let's create it then, we won't be the "initiator"
-        // let theirSocketId = from;
         let peerConnection = this.createPeerConnection(from, false);
-
         this.peers[from].peerConnection = peerConnection;
-
-        // Tell the new simplepeer that signal
         peerConnection.signal(data);
       }
     });
 
-    // Update when one of the users moves in space
     this.socket.on("positions", (positions) => {
       this.callEventCallback("positions", positions);
     });
   }
 
-  // this function sets up a peer connection and corresponding DOM elements for a specific peer
   createPeerConnection(theirSocketId, isInitiator = false) {
     console.log("Connecting to peer with ID", theirSocketId);
     console.log("initiating?", isInitiator);
@@ -259,22 +246,17 @@ export class Communications {
         this.socket.emit("signal", theirSocketId, this.socket.id, data);
     });
 
-    // When we have a connection, this will fire
     peerConnection.on("connect", () => {
         console.log("PEER CONNECTION ESTABLISHED");
     });
 
-
-    // Stream coming in to us
     peerConnection.on("stream", (stream) => {
       console.log("Incoming Stream");
-
       updatePeerDOMElements(theirSocketId, stream);
     });
 
     peerConnection.on("close", () => {
       console.log("Got close event");
-      // Should probably remove from the array of peers
     });
 
     peerConnection.on("error", (err) => {
@@ -297,13 +279,14 @@ function createPeerDOMElements(_id) {
   let audioEl = document.createElement("audio");
   audioEl.setAttribute("id", _id + "_audio");
   audioEl.controls = "controls";
-  // --- SOLUTION: Mute audio elements by default to allow autoplay ---
   audioEl.muted = true;
   audioEl.volume = 0;
   document.body.appendChild(audioEl);
 
   audioEl.addEventListener("loadeddata", () => {
-    audioEl.play();
+    // We try to play, but it will be silent until volume is changed.
+    // This is better than the promise-based play() which can be complex.
+    audioEl.play().catch(e => console.warn("Audio play failed:", e));
   });
 }
 
@@ -322,6 +305,8 @@ function updatePeerDOMElements(_id, stream) {
     let audioStream = new MediaStream([audioTrack]);
     let audioEl = document.getElementById(_id + "_audio");
     audioEl.srcObject = audioStream;
+    // Unmute the element to allow volume control via JS
+    audioEl.muted = false;
   }
 }
 

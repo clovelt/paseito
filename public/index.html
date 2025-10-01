@@ -52,14 +52,12 @@
         height: 50px;
         font-size: 24px;
         cursor: pointer;
-        flex-shrink: 0; /* Prevent buttons from shrinking */
+        flex-shrink: 0;
       }
       .control-button.active {
         background-color: rgba(255, 255, 255, 0.7);
         color: black;
       }
-
-      /* --- SOLUTION: Styles for the new settings menu --- */
       #settings-menu-container {
         position: absolute;
         top: 20px;
@@ -107,13 +105,51 @@
         margin-right: 8px;
         color: #a0a0a0;
       }
+
+      /* --- SOLUTION: Style for the mobile jump button --- */
+      #jump-button {
+        position: absolute;
+        bottom: 220px;
+        left: 50px;
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        font-size: 32px;
+        display: none; /* Hidden by default, shown via JS on mobile */
+      }
+      /* --- SOLUTION: Styles for the new admin panel --- */
+      #admin-panel {
+        position: absolute;
+        top: 80px;
+        left: 20px;
+        background-color: rgba(255, 20, 20, 0.7);
+        border-radius: 8px;
+        padding: 10px;
+        display: none; /* Hidden by default */
+        flex-direction: column;
+        gap: 8px;
+        z-index: 12;
+      }
+      #admin-panel button {
+        background-color: #333;
+        color: white;
+        border: 1px solid #555;
+        padding: 8px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+       #admin-panel button:disabled {
+        background-color: #111;
+        color: #777;
+        cursor: not-allowed;
+      }
+
     </style>
   </head>
 
   <body style="margin: 0; padding: 0">
     <div id="canvas-container"></div>
     <div id="controls-container">
-      <!-- Top-left controls remain here -->
       <button id="photo-button" class="control-button" style="position: absolute; top: 20px; left: 20px;" title="Take a Photo">
         <i class="fa-solid fa-camera"></i>
       </button>
@@ -121,8 +157,17 @@
         <i class="fa-solid fa-sign-hanging"></i>
       </button>
 
-      <!-- SOLUTION: Restructured top-right controls into a collapsible menu -->
+      <button id="run-button" class="control-button" style="position: absolute; top: 80px; right: 20px;" title="Toggle Run">
+        <i class="fa-solid fa-person-running"></i>
+      </button>
       <div id="settings-menu-container">
+        <!-- SOLUTION: Added Admin and Fly Up buttons -->
+        <button id="admin-menu-button" class="control-button submenu-button" title="Admin Panel">
+            <i class="fa-solid fa-shield-halved"></i>
+        </button>
+        <button id="fly-button" class="control-button submenu-button" title="Fly Up (Unstuck)">
+            <i class="fa-solid fa-plane-up"></i>
+        </button>
         <button id="quality-button" class="control-button submenu-button active" title="Toggle Graphics Quality">
           <i class="fa-solid fa-sliders"></i>
         </button>
@@ -136,13 +181,18 @@
           <i class="fa-solid fa-gear"></i>
         </button>
       </div>
-
-      <button id="run-button" class="control-button" style="position: absolute; top: 80px; right: 20px;" title="Toggle Run">
-        <i class="fa-solid fa-person-running"></i>
-      </button>
     </div>
     <div id="user-list-container"></div>
     <div id="joystick-container" style="position: absolute; bottom: 50px; left: 50px; width: 150px; height: 150px;"></div>
+    
+    <!-- SOLUTION: Added mobile jump button and admin panel -->
+    <button id="jump-button" class="control-button"><i class="fa-solid fa-arrow-up"></i></button>
+    <div id="admin-panel">
+      <button id="admin-delete-all">Delete All Signs</button>
+      <button disabled>Placeholder Button 1</button>
+      <button disabled>Placeholder Button 2</button>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
   </body>
 </html>

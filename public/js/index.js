@@ -28,6 +28,7 @@ const COLLISION_LAYER = 3;
 
 let frameCount = 0;
 let peers = {};
+let signs = []; // Array to keep track of sign objects for easy removal
 const userListContainer = document.getElementById('user-list-container');
 const qualityButton = document.getElementById('quality-button');
 const runButton = document.getElementById('run-button');
@@ -37,6 +38,10 @@ const addSignButton = document.getElementById('add-sign-button');
 const photoButton = document.getElementById('photo-button');
 const settingsButton = document.getElementById('settings-button');
 const settingsMenu = document.getElementById('settings-menu-container');
+const flyButton = document.getElementById('fly-button');
+const adminMenuButton = document.getElementById('admin-menu-button');
+const adminPanel = document.getElementById('admin-panel');
+const adminDeleteAllButton = document.getElementById('admin-delete-all');
 
 function init() {
   scene = new THREE.Scene();
@@ -92,6 +97,8 @@ function init() {
     if (msg.type == "box") onNewBox(msg);
     if (msg.type == "sign") onNewSign(msg);
   });
+  // --- SOLUTION: Listen for clear event from server ---
+  communications.on("clearAllObjects", clearAllSigns);
 
   let width = window.innerWidth;
   let height = window.innerHeight;
@@ -189,7 +196,6 @@ function init() {
     }
   });
   
-  // --- SOLUTION: Replaced toDataURL with toBlob for robust downloading ---
   photoButton.addEventListener('click', () => {
     if (isHighQuality) {
         composer.render();
@@ -203,14 +209,39 @@ function init() {
         link.download = 'paseito_capture.png';
         link.href = url;
         link.click();
-        URL.revokeObjectURL(url); // Clean up memory
+        URL.revokeObjectURL(url);
     }, 'image/png');
   });
 
-  // --- SOLUTION: Add listener to toggle the settings menu ---
   settingsButton.addEventListener('click', () => {
     settingsMenu.classList.toggle('open');
   });
+  
+  // --- SOLUTION: "Fly Up" button listener ---
+  flyButton.addEventListener('click', () => {
+    controls.camera.position.set(0, 200, 0);
+    controls.velocity.y = 0; // Stop any falling momentum
+  });
+
+  // --- SOLUTION: Admin menu logic ---
+  adminMenuButton.addEventListener('click', () => {
+    // NOTE: This is NOT a secure way to handle passwords.
+    // It is for demonstration purposes only.
+    const password = prompt("Enter admin password:");
+    if (password === "admin") {
+      adminPanel.style.display = 'flex';
+    } else if (password) {
+      alert("Incorrect password.");
+    }
+  });
+
+  adminDeleteAllButton.addEventListener('click', () => {
+    if (confirm("Are you sure you want to delete ALL signs from the server?")) {
+        communications.socket.emit("admin:deleteAllObjects");
+        adminPanel.style.display = 'none'; // Hide menu after action
+    }
+  });
+
 
   window.addEventListener('keydown', (event) => {
     if (document.pointerLockElement !== renderer.domElement) return;
@@ -245,6 +276,12 @@ function init() {
   
   setQuality(isHighQuality);
   updateVideoPosition();
+
+  // --- SOLUTION: Show jump button on mobile devices ---
+  if ('ontouchstart' in window) {
+    document.getElementById('jump-button').style.display = 'block';
+  }
+
   update();
 }
 
@@ -417,7 +454,8 @@ function onNewSign(msg) {
   canvas.width = canvasSize * (BOARD_WIDTH / BOARD_HEIGHT);
   canvas.height = canvasSize;
   const context = canvas.getContext('2d');
-  context.fillStyle = '#402810';
+  // --- SOLUTION: Changed text color to black ---
+  context.fillStyle = '#000000';
   context.font = '24px sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
@@ -461,8 +499,17 @@ function onNewSign(msg) {
   sign.quaternion.fromArray(msg.data.rotation);
   
   scene.add(sign);
+  signs.push(sign); // Track the sign for later removal
 }
 
+// --- SOLUTION: New function to clear all signs from the scene ---
+function clearAllSigns() {
+    for (const sign of signs) {
+        scene.remove(sign);
+        // It's good practice to dispose of geometries and materials, but we'll skip for simplicity here.
+    }
+    signs.length = 0; // Clear the array
+}
 
 function addUserToList(id, isLocal = false) {
     const userItem = document.createElement('div');

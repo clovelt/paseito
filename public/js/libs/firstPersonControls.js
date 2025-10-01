@@ -57,6 +57,14 @@ export class FirstPersonControls {
         this.isRunning = !this.isRunning;
     }
 
+    // --- SOLUTION: Centralized jump logic ---
+    jump() {
+        if (this.canJump) {
+            this.velocity.y = 30; // jumpSpeed
+            this.canJump = false;
+        }
+    }
+
     setupJoystick() {
         const options = {
             zone: document.getElementById('joystick-container'),
@@ -82,8 +90,6 @@ export class FirstPersonControls {
     }
 
     setupControls() {
-        let jumpSpeed = 30;
-
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
@@ -145,6 +151,14 @@ export class FirstPersonControls {
             this.isUserInteracting = false;
         });
 
+        // --- SOLUTION: Add listener for mobile jump button ---
+        const jumpButton = document.getElementById('jump-button');
+        if (jumpButton) {
+            jumpButton.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                this.jump();
+            });
+        }
 
         // Keyboard movement controls
         document.addEventListener('keydown', (event) => {
@@ -157,10 +171,7 @@ export class FirstPersonControls {
                 case 'KeyS': this.moveBackward = true; break;
                 case 'ArrowRight':
                 case 'KeyD': this.moveRight = true; break;
-                case 'Space':
-                    if (this.canJump) this.velocity.y = jumpSpeed;
-                    this.canJump = false;
-                    break;
+                case 'Space': this.jump(); break;
                 case 'ShiftLeft':
                 case 'ShiftRight':
                     this.isRunning = true;

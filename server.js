@@ -33,6 +33,11 @@ if (process.env.DATABASE_URL) {
     insert: async (doc, callback) => {
       await pool.query('INSERT INTO boxes (type, data) VALUES ($1, $2)', [doc.type, doc.data]);
       if (callback) callback(null, doc);
+    },
+    // --- SOLUTION: Add deleteAll method for admin panel ---
+    deleteAll: async (callback) => {
+      await pool.query('TRUNCATE TABLE boxes RESTART IDENTITY;');
+      if(callback) callback(null);
     }
   };
 
@@ -44,7 +49,9 @@ if (process.env.DATABASE_URL) {
   // Create a fake database object that does nothing but prevents crashes.
   db = {
     find: (query, callback) => callback(null, []), // Always return empty array
-    insert: (doc, callback) => { if (callback) callback(null, doc); } // Pretend to save
+    insert: (doc, callback) => { if (callback) callback(null, doc); }, // Pretend to save
+    // --- SOLUTION: Add deleteAll method for local dev ---
+    deleteAll: (callback) => { if(callback) callback(null); }
   };
 }
 
@@ -99,6 +106,16 @@ function setupSocketServer() {
 
     socket.on("signal", (to, from, data) => {
       if (to in peers) io.to(to).emit("signal", to, from, data);
+    });
+
+    // --- SOLUTION: Add listener for the admin delete command ---
+    socket.on("admin:deleteAllObjects", () => {
+        console.log(`Admin command: deleteAllObjects received from ${socket.id}`);
+        db.deleteAll((err) => {
+            if (err) return console.error("DB deleteAll error:", err);
+            // Tell all clients to clear the objects from their scenes
+            io.sockets.emit("clearAllObjects");
+        });
     });
 
     socket.on("disconnect", () => {
