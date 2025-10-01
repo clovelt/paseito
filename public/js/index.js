@@ -21,14 +21,14 @@ let camera, renderer, scene, composer;
 let controls;
 let listener;
 let communications;
-let dirLight, sky, sun, sunSphere; // Make sunSphere globally accessible
+let dirLight, sky, sun, sunSphere;
 let isHighQuality = true;
 
 const COLLISION_LAYER = 3;
 
 let frameCount = 0;
 let peers = {};
-let signs = []; // Array to keep track of sign objects for easy removal
+let signs = [];
 const userListContainer = document.getElementById('user-list-container');
 const qualityButton = document.getElementById('quality-button');
 const runButton = document.getElementById('run-button');
@@ -42,6 +42,192 @@ const flyButton = document.getElementById('fly-button');
 const adminMenuButton = document.getElementById('admin-menu-button');
 const adminPanel = document.getElementById('admin-panel');
 const adminDeleteAllButton = document.getElementById('admin-delete-all');
+const adminBroadcastButton = document.getElementById('admin-broadcast-message');
+const adminTeleportButton = document.getElementById('admin-teleport-all');
+
+// --- SOLUTION: Moved helper functions to the module scope to fix ReferenceError ---
+
+function addPeer(id, peerData) {
+  const MII_HEAD_RADIUS = 0.5;
+  const MII_BODY_HEIGHT = 1.5;
+  const MII_BODY_WIDTH = 1;
+  const MII_LIMB_RADIUS = 0.15;
+  const MII_ARM_LENGTH = 0.8;
+  const MII_LEG_LENGTH = 0.9;
+  
+  const videoElement = document.getElementById(id + "_video");
+  const videoTexture = new THREE.VideoTexture(videoElement);
+  
+  const headMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xffd3a6 });
+  const shirtMat = new THREE.MeshStandardMaterial({ color: 0x4287f5 });
+  const pantsMat = new THREE.MeshStandardMaterial({ color: 0x3d3d3d });
+
+  const headGeo = new THREE.SphereGeometry(MII_HEAD_RADIUS, 32, 16);
+  const bodyGeo = new THREE.BoxGeometry(MII_BODY_WIDTH, MII_BODY_HEIGHT, MII_BODY_WIDTH * 0.7);
+  const armGeo = new THREE.CylinderGeometry(MII_LIMB_RADIUS, MII_LIMB_RADIUS, MII_ARM_LENGTH);
+  const legGeo = new THREE.CylinderGeometry(MII_LIMB_RADIUS, MII_LIMB_RADIUS, MII_LEG_LENGTH);
+  const handGeo = new THREE.SphereGeometry(MII_LIMB_RADIUS);
+  const footGeo = new THREE.SphereGeometry(MII_LIMB_RADIUS * 1.2);
+
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.rotation.y = Math.PI;
+
+  const body = new THREE.Mesh(bodyGeo, shirtMat);
+  body.position.y = -(MII_HEAD_RADIUS + MII_BODY_HEIGHT / 2);
+
+  const armL = new THREE.Mesh(armGeo, skinMat);
+  armL.position.set(MII_BODY_WIDTH / 2 + MII_LIMB_RADIUS, -MII_HEAD_RADIUS, 0);
+  
+  const armR = armL.clone();
+  armR.position.x *= -1;
+
+  const handL = new THREE.Mesh(handGeo, skinMat);
+  handL.position.y = -MII_ARM_LENGTH / 2;
+  armL.add(handL);
+
+  const handR = new THREE.Mesh(handGeo, skinMat);
+  handR.position.y = -MII_ARM_LENGTH / 2;
+  armR.add(handR);
+
+  const legL = new THREE.Mesh(legGeo, pantsMat);
+  legL.position.set(MII_BODY_WIDTH / 4, -(MII_HEAD_RADIUS + MII_BODY_HEIGHT + MII_LEG_LENGTH / 2), 0);
+  
+  const legR = legL.clone();
+  legR.position.x *= -1;
+
+  const footL = new THREE.Mesh(footGeo, pantsMat);
+  footL.position.y = -MII_LEG_LENGTH / 2;
+  legL.add(footL);
+
+  const footR = new THREE.Mesh(footGeo, pantsMat);
+  footR.position.y = -MII_LEG_LENGTH / 2;
+  legR.add(footR);
+
+  const group = new THREE.Group();
+  group.add(head, body, armL, armR, legL, legR);
+  group.position.y = MII_HEAD_RADIUS + MII_BODY_HEIGHT + MII_LEG_LENGTH; // Adjust so feet are on the ground
+
+  scene.add(group);
+  peers[id] = {};
+  peers[id].group = group;
+  peers[id].name = peerData.name;
+  peers[id].previousPosition = new THREE.Vector3();
+  peers[id].previousRotation = new THREE.Quaternion();
+  peers[id].desiredPosition = new THREE.Vector3();
+  peers[id].desiredRotation = new THREE.Quaternion();
+}
+
+function removePeer(id) {
+  if(peers[id] && peers[id].group) scene.remove(peers[id].group);
+  delete peers[id];
+}
+
+function updatePeerPositions(positions) {
+  lerpValue = 0;
+  for (let id in positions) {
+    if (peers[id]) {
+      peers[id].previousPosition.copy(peers[id].group.position);
+      peers[id].previousRotation.copy(peers[id].group.quaternion);
+      peers[id].desiredPosition = new THREE.Vector3().fromArray(positions[id].position);
+      peers[id].desiredRotation = new THREE.Quaternion().fromArray(positions[id].rotation);
+    }
+  }
+}
+
+function onNewSign(msg) {
+  const POST_HEIGHT = 4;
+  const POST_RADIUS = 0.1;
+  const BOARD_WIDTH = 3;
+  const BOARD_HEIGHT = 2;
+  const BOARD_DEPTH = 0.2;
+
+  const postGeometry = new THREE.CylinderGeometry(POST_RADIUS, POST_RADIUS, POST_HEIGHT);
+  const postMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 });
+  const post = new THREE.Mesh(postGeometry, postMaterial);
+  post.position.y = POST_HEIGHT / 2;
+  post.castShadow = true;
+  post.receiveShadow = true;
+
+  const boardGeometry = new THREE.BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_DEPTH);
+  const boardMaterial = new THREE.MeshStandardMaterial({ color: 0xdeb887 });
+  const board = new THREE.Mesh(boardGeometry, boardMaterial);
+  board.position.y = POST_HEIGHT;
+  board.castShadow = true;
+  board.receiveShadow = true;
+  
+  const canvas = document.createElement('canvas');
+  const canvasSize = 256;
+  canvas.width = canvasSize * (BOARD_WIDTH / BOARD_HEIGHT);
+  canvas.height = canvasSize;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#000000';
+  context.font = '24px sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  
+  const words = msg.data.text.split(' ');
+  let line = '';
+  let lines = [];
+  const maxWidth = canvas.width - 20;
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = context.measureText(testLine);
+    const testWidth = metrics.width;
+    if (testWidth > maxWidth && n > 0) {
+      lines.push(line);
+      line = words[n] + ' ';
+    } else {
+      line = testLine;
+    }
+  }
+  lines.push(line);
+  
+  const lineHeight = 28;
+  const startY = (canvas.height - (lines.length - 1) * lineHeight) / 2;
+  for(let i = 0; i < lines.length; i++) {
+    context.fillText(lines[i], canvas.width / 2, startY + i * lineHeight);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const textMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+  const textGeometry = new THREE.PlaneGeometry(BOARD_WIDTH, BOARD_HEIGHT);
+  const textPlane = new THREE.Mesh(textGeometry, textMaterial);
+  textPlane.position.y = POST_HEIGHT;
+  textPlane.position.z = BOARD_DEPTH / 2 + 0.01;
+
+  const sign = new THREE.Group();
+  sign.add(post);
+  sign.add(board);
+  sign.add(textPlane);
+
+  sign.position.fromArray(msg.data.position);
+  sign.quaternion.fromArray(msg.data.rotation);
+  
+  scene.add(sign);
+  signs.push(sign);
+}
+
+function clearAllSigns() {
+    for (const sign of signs) {
+        scene.remove(sign);
+    }
+    signs.length = 0;
+}
+
+function addUserToList(id, name) {
+    const userItem = document.createElement('div');
+    userItem.id = 'useritem-' + id;
+    userItem.className = 'user-list-item';
+    let displayName = name ? name : id.substring(0, 6);
+    userItem.innerHTML = `<i class="fa-solid fa-headset"></i> ${displayName}`;
+    userListContainer.appendChild(userItem);
+}
+
+function removeUserFromList(id) {
+    const userItem = document.getElementById('useritem-' + id);
+    if (userItem) { userItem.remove(); }
+}
 
 function init() {
   scene = new THREE.Scene();
@@ -89,16 +275,15 @@ function init() {
   );
 
   communications = new Communications();
-  communications.on("peerJoined", (id) => { addPeer(id); addUserToList(id); });
+  communications.on("peerJoined", (id, peerData) => { addPeer(id, peerData); addUserToList(id, peerData.name); });
   communications.on("peerLeft", (id) => { removePeer(id); removeUserFromList(id); });
-  communications.on("positions", (positions) => { updatePeerPositions(positions); });
+  communications.on("positions", updatePeerPositions);
   communications.on("data", (msg) => {
-    console.log("Received message:", msg);
-    if (msg.type == "box") onNewBox(msg);
     if (msg.type == "sign") onNewSign(msg);
   });
-  // --- SOLUTION: Listen for clear event from server ---
   communications.on("clearAllObjects", clearAllSigns);
+  communications.on("serverMessage", (message) => { alert(message); });
+
 
   let width = window.innerWidth;
   let height = window.innerHeight;
@@ -217,16 +402,12 @@ function init() {
     settingsMenu.classList.toggle('open');
   });
   
-  // --- SOLUTION: "Fly Up" button listener ---
   flyButton.addEventListener('click', () => {
     controls.camera.position.set(0, 200, 0);
-    controls.velocity.y = 0; // Stop any falling momentum
+    controls.velocity.y = 0;
   });
 
-  // --- SOLUTION: Admin menu logic ---
   adminMenuButton.addEventListener('click', () => {
-    // NOTE: This is NOT a secure way to handle passwords.
-    // It is for demonstration purposes only.
     const password = prompt("Enter admin password:");
     if (password === "admin") {
       adminPanel.style.display = 'flex';
@@ -238,10 +419,24 @@ function init() {
   adminDeleteAllButton.addEventListener('click', () => {
     if (confirm("Are you sure you want to delete ALL signs from the server?")) {
         communications.socket.emit("admin:deleteAllObjects");
-        adminPanel.style.display = 'none'; // Hide menu after action
+        adminPanel.style.display = 'none';
     }
   });
 
+  adminBroadcastButton.addEventListener('click', () => {
+      const message = prompt("Enter message to broadcast to all users:");
+      if (message) {
+          communications.socket.emit("admin:broadcastMessage", message);
+          adminPanel.style.display = 'none';
+      }
+  });
+  
+  adminTeleportButton.addEventListener('click', () => {
+      if(confirm("Are you sure you want to teleport all users to the center?")) {
+          communications.socket.emit("admin:teleportAll");
+          adminPanel.style.display = 'none';
+      }
+  });
 
   window.addEventListener('keydown', (event) => {
     if (document.pointerLockElement !== renderer.domElement) return;
@@ -277,15 +472,12 @@ function init() {
   setQuality(isHighQuality);
   updateVideoPosition();
 
-  // --- SOLUTION: Show jump button on mobile devices ---
   if ('ontouchstart' in window) {
     document.getElementById('jump-button').style.display = 'block';
   }
 
   update();
 }
-
-init();
 
 function setQuality(high) {
   isHighQuality = high;
@@ -328,39 +520,6 @@ function addLights() {
   dirLight.shadow.camera.top = 1000;
   dirLight.shadow.camera.bottom = -1000;
   scene.add(dirLight);
-}
-
-function addPeer(id) {
-  let videoElement = document.getElementById(id + "_video");
-  let videoTexture = new THREE.VideoTexture(videoElement);
-  let videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
-  let otherMat = new THREE.MeshNormalMaterial();
-  let head = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [otherMat, otherMat, otherMat, otherMat, otherMat, videoMaterial]);
-  head.position.set(0, 0, 0);
-  var group = new THREE.Group();
-  group.add(head);
-  scene.add(group);
-  peers[id] = {};
-  peers[id].group = group;
-  peers[id].previousPosition = new THREE.Vector3();
-  peers[id].previousRotation = new THREE.Quaternion();
-  peers[id].desiredPosition = new THREE.Vector3();
-  peers[id].desiredRotation = new THREE.Quaternion();
-}
-
-function removePeer(id) {
-  if(peers[id] && peers[id].group) scene.remove(peers[id].group);
-}
-
-function updatePeerPositions(positions) {
-  lerpValue = 0;
-  for (let id in positions) {
-    if (!peers[id]) continue;
-    peers[id].previousPosition.copy(peers[id].group.position);
-    peers[id].previousRotation.copy(peers[id].group.quaternion);
-    peers[id].desiredPosition = new THREE.Vector3().fromArray(positions[id].position);
-    peers[id].desiredRotation = new THREE.Quaternion().fromArray(positions[id].rotation);
-  }
 }
 
 function interpolatePositions() {
@@ -419,109 +578,5 @@ function onWindowResize() {
   composer.setSize(width, height);
 }
 
-function onNewBox(msg) {
-  let geo = new THREE.BoxGeometry(1, 1, 1);
-  let mat = new THREE.MeshBasicMaterial();
-  let mesh = new THREE.Mesh(geo, mat);
-  let pos = msg.data;
-  mesh.position.set(pos.x, pos.y, pos.z);
-  scene.add(mesh);
-}
-
-function onNewSign(msg) {
-  const POST_HEIGHT = 4;
-  const POST_RADIUS = 0.1;
-  const BOARD_WIDTH = 3;
-  const BOARD_HEIGHT = 2;
-  const BOARD_DEPTH = 0.2;
-
-  const postGeometry = new THREE.CylinderGeometry(POST_RADIUS, POST_RADIUS, POST_HEIGHT);
-  const postMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 });
-  const post = new THREE.Mesh(postGeometry, postMaterial);
-  post.position.y = POST_HEIGHT / 2;
-  post.castShadow = true;
-  post.receiveShadow = true;
-
-  const boardGeometry = new THREE.BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_DEPTH);
-  const boardMaterial = new THREE.MeshStandardMaterial({ color: 0xdeb887 });
-  const board = new THREE.Mesh(boardGeometry, boardMaterial);
-  board.position.y = POST_HEIGHT;
-  board.castShadow = true;
-  board.receiveShadow = true;
-  
-  const canvas = document.createElement('canvas');
-  const canvasSize = 256;
-  canvas.width = canvasSize * (BOARD_WIDTH / BOARD_HEIGHT);
-  canvas.height = canvasSize;
-  const context = canvas.getContext('2d');
-  // --- SOLUTION: Changed text color to black ---
-  context.fillStyle = '#000000';
-  context.font = '24px sans-serif';
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  
-  const words = msg.data.text.split(' ');
-  let line = '';
-  let lines = [];
-  const maxWidth = canvas.width - 20;
-  for (let n = 0; n < words.length; n++) {
-    const testLine = line + words[n] + ' ';
-    const metrics = context.measureText(testLine);
-    const testWidth = metrics.width;
-    if (testWidth > maxWidth && n > 0) {
-      lines.push(line);
-      line = words[n] + ' ';
-    } else {
-      line = testLine;
-    }
-  }
-  lines.push(line);
-  
-  const lineHeight = 28;
-  const startY = (canvas.height - (lines.length - 1) * lineHeight) / 2;
-  for(let i = 0; i < lines.length; i++) {
-    context.fillText(lines[i], canvas.width / 2, startY + i * lineHeight);
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  const textMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-  const textGeometry = new THREE.PlaneGeometry(BOARD_WIDTH, BOARD_HEIGHT);
-  const textPlane = new THREE.Mesh(textGeometry, textMaterial);
-  textPlane.position.y = POST_HEIGHT;
-  textPlane.position.z = BOARD_DEPTH / 2 + 0.01;
-
-  const sign = new THREE.Group();
-  sign.add(post);
-  sign.add(board);
-  sign.add(textPlane);
-
-  sign.position.fromArray(msg.data.position);
-  sign.quaternion.fromArray(msg.data.rotation);
-  
-  scene.add(sign);
-  signs.push(sign); // Track the sign for later removal
-}
-
-// --- SOLUTION: New function to clear all signs from the scene ---
-function clearAllSigns() {
-    for (const sign of signs) {
-        scene.remove(sign);
-        // It's good practice to dispose of geometries and materials, but we'll skip for simplicity here.
-    }
-    signs.length = 0; // Clear the array
-}
-
-function addUserToList(id, isLocal = false) {
-    const userItem = document.createElement('div');
-    userItem.id = 'useritem-' + id;
-    userItem.className = 'user-list-item';
-    let name = isLocal ? 'You' : id.substring(0, 6);
-    let icon = isLocal ? 'fa-user' : 'fa-headset';
-    userItem.innerHTML = `<i class="fa-solid ${icon}"></i> ${name}`;
-    userListContainer.appendChild(userItem);
-}
-
-function removeUserFromList(id) {
-    const userItem = document.getElementById('useritem-' + id);
-    if (userItem) { userItem.remove(); }
-}
+// Start of the script
+init();

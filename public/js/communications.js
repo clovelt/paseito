@@ -17,13 +17,14 @@ export class Communications {
 
     this.initialize();
 
-    // --- SOLUTION: Restore the initialization of the event callbacks object ---
+    // --- SOLUTION: Restored the initialization of the event callbacks object ---
     this.userDefinedCallbacks = {
       peerJoined: [],
       peerLeft: [],
       positions: [],
       data: [],
-      clearAllObjects: [] // Add the new event for the admin panel
+      clearAllObjects: [],
+      serverMessage: []
     };
   }
 
@@ -162,34 +163,36 @@ export class Communications {
       this.callEventCallback("data", data);
     });
     
-    // --- SOLUTION: Listen for clear event from server ---
+    // --- SOLUTION: Add listeners for new server events ---
     this.socket.on("clearAllObjects", () => {
         this.callEventCallback("clearAllObjects");
     });
+    this.socket.on("serverMessage", (message) => {
+        this.callEventCallback("serverMessage", message);
+    });
 
 
-    this.socket.on("introduction", (otherPeerIds) => {
-      for (let i = 0; i < otherPeerIds.length; i++) {
-        if (otherPeerIds[i] != this.socket.id) {
-          let theirId = otherPeerIds[i];
+    this.socket.on("introduction", (allPeers) => {
+      for (let id in allPeers) {
+        if (id !== this.socket.id) {
+          console.log("Adding peer with id " + id);
+          this.peers[id] = {};
 
-          console.log("Adding peer with id " + theirId);
-          this.peers[theirId] = {};
+          let pc = this.createPeerConnection(id, true);
+          this.peers[id].peerConnection = pc;
 
-          let pc = this.createPeerConnection(theirId, true);
-          this.peers[theirId].peerConnection = pc;
-
-          createPeerDOMElements(theirId);
-          this.callEventCallback("peerJoined", theirId);
+          createPeerDOMElements(id);
+          // Pass the peerData (which includes the name)
+          this.userDefinedCallbacks["peerJoined"].forEach(callback => callback(id, allPeers[id]));
         }
       }
     });
 
-    this.socket.on("peerConnection", (theirId) => {
+    this.socket.on("peerConnection", (theirId, peerData) => {
       if (theirId != this.socket.id && !(theirId in this.peers)) {
         this.peers[theirId] = {};
         createPeerDOMElements(theirId);
-        this.callEventCallback("peerJoined", theirId);
+        this.userDefinedCallbacks["peerJoined"].forEach(callback => callback(theirId, peerData));
       }
     });
 
@@ -284,8 +287,6 @@ function createPeerDOMElements(_id) {
   document.body.appendChild(audioEl);
 
   audioEl.addEventListener("loadeddata", () => {
-    // We try to play, but it will be silent until volume is changed.
-    // This is better than the promise-based play() which can be complex.
     audioEl.play().catch(e => console.warn("Audio play failed:", e));
   });
 }
@@ -305,7 +306,6 @@ function updatePeerDOMElements(_id, stream) {
     let audioStream = new MediaStream([audioTrack]);
     let audioEl = document.getElementById(_id + "_audio");
     audioEl.srcObject = audioStream;
-    // Unmute the element to allow volume control via JS
     audioEl.muted = false;
   }
 }
