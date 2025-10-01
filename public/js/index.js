@@ -63,6 +63,67 @@ const sizeSlider = document.getElementById('size-slider');
 const speedSlider = document.getElementById('speed-slider');
 const accelSlider = document.getElementById('accel-slider');
 
+// --- DOM Utility Functions (Moved from communications.js) ---
+
+function createPeerDOMElements(_id) {
+  if (document.getElementById(_id + "_video")) return; // Already exists
+
+  const videoElement = document.createElement("video");
+  videoElement.id = _id + "_video";
+  videoElement.autoplay = true;
+  videoElement.muted = true;
+  videoElement.setAttribute("playsinline", ""); // Important for iOS
+  document.body.appendChild(videoElement);
+
+  let audioEl = document.createElement("audio");
+  audioEl.setAttribute("id", _id + "_audio");
+  audioEl.controls = "controls";
+  audioEl.volume = 0;
+  document.body.appendChild(audioEl);
+
+  audioEl.addEventListener("loadeddata", () => {
+    audioEl.play().catch(e => console.warn("Audio play failed:", e));
+  });
+}
+
+function updatePeerDOMElements({ id, stream, isLocal = false }) {
+  if (!stream) return;
+  
+  const videoTrack = stream.getVideoTracks()[0];
+  const audioTrack = stream.getAudioTracks()[0];
+
+  if (videoTrack) {
+    let videoStream = new MediaStream([videoTrack]);
+    const videoElement = document.getElementById(id + "_video");
+    if (isLocal) {
+        const localVideoPreview = document.getElementById("local_video");
+        if(localVideoPreview) localVideoPreview.srcObject = videoStream;
+    }
+    if (videoElement) videoElement.srcObject = videoStream;
+  }
+  if (audioTrack) {
+    let audioStream = new MediaStream([audioTrack]);
+    let audioEl = document.getElementById(id + "_audio");
+    if (audioEl) {
+        audioEl.srcObject = audioStream;
+        if(!isLocal) {
+           audioEl.muted = false;
+        }
+    }
+  }
+}
+
+function cleanupPeerDomElements(_id) {
+  let videoEl = document.getElementById(_id + "_video");
+  if (videoEl) videoEl.remove();
+
+  let audioEl = document.getElementById(_id + "_audio");
+  if (audioEl) audioEl.remove();
+}
+
+
+// --- Main Application Logic ---
+
 function addPeer(id, peerData) {
   const MII_HEAD_RADIUS = 0.65;
   const MII_BODY_HEIGHT = 2;
@@ -72,6 +133,10 @@ function addPeer(id, peerData) {
   const MII_LEG_LENGTH = 2.2;
   
   const videoElement = document.getElementById(id + "_video");
+  if (!videoElement) {
+      console.error(`addPeer failed: video element for ${id} not found.`);
+      return;
+  }
   const videoTexture = new THREE.VideoTexture(videoElement);
   
   const headMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
@@ -145,7 +210,8 @@ function removePeer(id) {
 function updatePeerPositions(positions) {
   lerpValue = 0;
   for (let id in positions) {
-    if (peers[id] && positions[id] && positions[id].position && positions[id].rotation) {
+    // --- BUGFIX: Add a check to ensure peer and position data exist before using them ---
+    if (peers[id] && peers[id].group && positions[id] && positions[id].position && positions[id].rotation) {
       peers[id].previousPosition.copy(peers[id].group.position);
       peers[id].previousRotation.copy(peers[id].group.quaternion);
       peers[id].desiredPosition.fromArray(positions[id].position);
@@ -402,21 +468,36 @@ async function init() {
       // Populate admin map selector
       mapSelectorContainer.style.display = 'block';
       for (const name in state.availableMaps) {
-          const option = new Option(name, state.availableMaps[name]);
+          const option = new Option(name, state.availableMaps[name]); // FIX: Use standard Option constructor
           mapSelect.add(option);
       }
       mapSelect.value = state.currentMap;
 
       for (let id in initialPeers) {
           if (id !== communications.socket.id) {
+              createPeerDOMElements(id); // FIX: Create DOM elements BEFORE adding peer
               addPeer(id, initialPeers[id]);
               addUserToList(id, initialPeers[id].name);
           }
       }
   });
+  
+  communications.on("peerStream", (data) => {
+    updatePeerDOMElements(data);
+  });
 
-  communications.on("peerJoined", (id, peerData) => { addPeer(id, peerData); addUserToList(id, peerData.name); });
-  communications.on("peerLeft", (id) => { removePeer(id); removeUserFromList(id); });
+  communications.on("peerJoined", ({id, peerData}) => { 
+      createPeerDOMElements(id); // FIX: Create DOM elements for new peers
+      addPeer(id, peerData);
+      addUserToList(id, peerData.name); 
+  });
+  
+  communications.on("peerLeft", (id) => { 
+      removePeer(id); 
+      removeUserFromList(id);
+      cleanupPeerDomElements(id); // FIX: Clean up DOM elements on disconnect
+  });
+  
   communications.on("positions", updatePeerPositions);
   communications.on("data", (msg) => {
     if (msg.type == "sign") onNewSign(msg);
@@ -677,6 +758,7 @@ function updatePeerVolumes() {
     if (audioEl && peers[id] && peers[id].group) {
       let distSquared = camera.position.distanceToSquared(peers[id].group.position);
       
+      // --- SOLUTION: Use shouting state to determine audio distance ---
       const isShouting = peers[id].isShouting;
       // Normal hearing distance is ~33 units. Shouting is ~67 units.
       const distMult = (isShouting ? 9.0 : 2.25) * worldState.voiceDistanceMultiplier;

@@ -20,20 +20,20 @@ export class Communications {
       peerLeft: [],
       positions: [],
       introduction: [],
+      peerStream: [], // For when a video/audio stream arrives
       data: [],
       clearAllObjects: [],
       serverMessage: []
     };
-
-    // this.initialize(); // THIS LINE IS REMOVED
   }
 
   async initialize() {
     // first get user media
     this.localMediaStream = await this.getLocalMedia();
 
-    createPeerDOMElements("local");
-    updatePeerDOMElements("local", this.localMediaStream);
+    // The main app (index.js) is now responsible for creating DOM elements
+    // We just need to fire an event to tell it to create the local one
+    this.callEventCallback("peerStream", { id: 'local', stream: this.localMediaStream, isLocal: true });
 
     // then initialize socket connection
     this.initSocketConnection();
@@ -41,6 +41,10 @@ export class Communications {
 
   // add a callback for a given event
   on(event, callback) {
+    if (!this.userDefinedCallbacks[event]) {
+        console.error(`Event "${event}" is not a valid event.`);
+        return;
+    }
     console.log(`Setting ${event} callback.`);
     this.userDefinedCallbacks[event].push(callback);
   }
@@ -54,9 +58,11 @@ export class Communications {
   }
 
   callEventCallback(event, data) {
-    this.userDefinedCallbacks[event].forEach((callback) => {
-      callback(data);
-    });
+    if (this.userDefinedCallbacks[event]) {
+      this.userDefinedCallbacks[event].forEach((callback) => {
+        callback(data);
+      });
+    }
   }
 
   async getLocalMedia() {
@@ -172,10 +178,8 @@ export class Communications {
 
 
     this.socket.on("introduction", (data) => {
-      // This is the new part: Pass the full data payload to the custom event system
       this.callEventCallback("introduction", data);
 
-      // This is the original part: set up WebRTC connections for all peers
       const allPeers = data.peers;
       for (let id in allPeers) {
         if (id !== this.socket.id) {
@@ -183,8 +187,6 @@ export class Communications {
           this.peers[id] = {};
           let pc = this.createPeerConnection(id, true);
           this.peers[id].peerConnection = pc;
-          createPeerDOMElements(id);
-          // We no longer need to call peerJoined here, as the introduction event in index.js handles the initial setup
         }
       }
     });
@@ -192,15 +194,13 @@ export class Communications {
     this.socket.on("peerConnection", (theirId, peerData) => {
       if (theirId != this.socket.id && !(theirId in this.peers)) {
         this.peers[theirId] = {};
-        createPeerDOMElements(theirId);
-        this.userDefinedCallbacks["peerJoined"].forEach(callback => callback(theirId, peerData));
+        this.callEventCallback("peerJoined", {id: theirId, peerData: peerData});
       }
     });
 
     this.socket.on("peerDisconnection", (_id) => {
       if (_id != this.socket.id) {
         this.callEventCallback("peerLeft", _id);
-        cleanupPeerDomElements(_id);
         delete this.peers[_id];
       }
     });
@@ -235,7 +235,7 @@ export class Communications {
           urls: 'stun:stun.l.google.com:19302'
         },
         {
-          urls: 'global.stun.twilio.com:3478'
+          urls: 'stun:global.stun.twilio.com:3478'
         },
         {
           urls: "turn:openrelay.metered.ca:80",
@@ -265,8 +265,8 @@ export class Communications {
     });
 
     peerConnection.on("stream", (stream) => {
-      console.log("Incoming Stream");
-      updatePeerDOMElements(theirSocketId, stream);
+      console.log("Incoming Stream from " + theirSocketId);
+      this.callEventCallback("peerStream", { id: theirSocketId, stream: stream });
     });
 
     peerConnection.on("close", () => {
@@ -278,64 +278,5 @@ export class Communications {
     });
 
     return peerConnection;
-  }
-}
-
-// Utilities 🚂
-
-function createPeerDOMElements(_id) {
-  const videoElement = document.createElement("video");
-  videoElement.id = _id + "_video";
-  videoElement.autoplay = true;
-  videoElement.muted = true;
-  videoElement.setAttribute("playsinline", ""); // Important for iOS
-  document.body.appendChild(videoElement);
-
-  let audioEl = document.createElement("audio");
-  audioEl.setAttribute("id", _id + "_audio");
-  audioEl.controls = "controls";
-  audioEl.volume = 0;
-  document.body.appendChild(audioEl);
-
-  audioEl.addEventListener("loadeddata", () => {
-    audioEl.play().catch(e => console.warn("Audio play failed:", e));
-  });
-}
-
-function updatePeerDOMElements(_id, stream) {
-  if (!stream) return;
-  
-  const videoTrack = stream.getVideoTracks()[0];
-  const audioTrack = stream.getAudioTracks()[0];
-
-  if (videoTrack) {
-    let videoStream = new MediaStream([videoTrack]);
-    const videoElement = document.getElementById(_id + "_video");
-    if (_id === "local") {
-        const localVideoPreview = document.getElementById("local_video");
-        if(localVideoPreview) localVideoPreview.srcObject = videoStream;
-    }
-    videoElement.srcObject = videoStream;
-  }
-  if (audioTrack) {
-    let audioStream = new MediaStream([audioTrack]);
-    let audioEl = document.getElementById(_id + "_audio");
-    audioEl.srcObject = audioStream;
-    if(_id !== "local") {
-       audioEl.muted = false;
-    }
-  }
-}
-
-
-function cleanupPeerDomElements(_id) {
-  let videoEl = document.getElementById(_id + "_video");
-  if (videoEl != null) {
-    videoEl.remove();
-  }
-
-  let audioEl = document.getElementById(_id + "_audio");
-  if (audioEl != null) {
-    audioEl.remove();
   }
 }
