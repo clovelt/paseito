@@ -27,6 +27,24 @@
       body {
         overflow: hidden;
       }
+      /* --- SOLUTION: Hide other peers' video/audio, but not the local preview --- */
+      video:not(#local_video), audio {
+        display: none;
+      }
+      /* --- SOLUTION: Style and position the local video preview --- */
+      #local_video {
+        position: absolute;
+        width: 150px;
+        height: 112px;
+        right: 30px;
+        bottom: 30px;
+        border: 2px solid rgba(255, 255, 255, 0.8);
+        border-radius: 8px;
+        z-index: 11;
+        transform: scaleX(-1); /* Mirror effect */
+        object-fit: cover;
+        background-color: black;
+      }
       .control-button {
         position: absolute;
         top: 20px;
@@ -58,6 +76,7 @@
         max-height: 200px;
         overflow-y: auto;
         z-index: 10;
+        min-width: 180px; /* Ensure it's wide enough for the preview */
       }
       .user-list-item {
         padding: 4px 8px;

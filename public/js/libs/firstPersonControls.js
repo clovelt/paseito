@@ -13,14 +13,20 @@ export class FirstPersonControls {
         this.raycaster = new THREE.Raycaster()
         
         this.walkSpeed = 250;
-        this.runSpeed = 500; // 2x walk speed
-        this.superSprintSpeed = 1000; // 4x walk speed
+        this.runSpeed = 500;
+        this.superSprintSpeed = 1000;
         this.acceleration = 600;
         this.deceleration = 800;
         this.currentSpeed = 0;
         this.isRunning = false;
         this.sprintDuration = 0;
-        this.superSprintThreshold = 2.0; // seconds to hold run to activate super sprint
+        this.superSprintThreshold = 2.0;
+
+        this.onPointerDownPointerX = 0;
+        this.onPointerDownPointerY = 0;
+        this.onPointerDownLon = 0;
+        this.onPointerDownLat = 0;
+        this.isUserInteracting = false;
 
         this.lon = 180
         this.lat = 0
@@ -91,10 +97,10 @@ export class FirstPersonControls {
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
 
+        // Desktop Pointer Lock
         const onMouseMove = (event) => {
             if (document.pointerLockElement !== this.renderer.domElement) return;
-            // --- THE DEFINITIVE FIX FOR THE INVERTED HORIZONTAL AXIS ---
-            this.lon += event.movementX * 0.3;
+            this.lon -= event.movementX * 0.3;
             this.lat -= event.movementY * 0.3;
             this.computeCameraOrientation();
         };
@@ -111,6 +117,33 @@ export class FirstPersonControls {
             this.renderer.domElement.requestPointerLock();
         });
 
+        // Mobile Touch Controls
+        this.renderer.domElement.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (e.touches.length === 1) {
+                this.isUserInteracting = true;
+                this.onPointerDownPointerX = e.touches[0].clientX;
+                this.onPointerDownPointerY = e.touches[0].clientY;
+                this.onPointerDownLon = this.lon;
+                this.onPointerDownLat = this.lat;
+            }
+        }, { passive: false });
+
+        this.renderer.domElement.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (this.isUserInteracting && e.touches.length === 1) {
+                this.lon = (this.onPointerDownPointerX - e.touches[0].clientX) * -0.3 + this.onPointerDownLon;
+                this.lat = (e.touches[0].clientY - this.onPointerDownPointerY) * -0.3 + this.onPointerDownLat;
+                this.computeCameraOrientation();
+            }
+        }, { passive: false });
+        
+        this.renderer.domElement.addEventListener('touchend', () => {
+            this.isUserInteracting = false;
+        });
+
+
+        // Keyboard movement controls
         document.addEventListener('keydown', (event) => {
             switch (event.code) {
                 case 'ArrowUp':
