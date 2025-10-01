@@ -93,7 +93,8 @@ function setupSocketServer() {
     socket.broadcast.emit("peerConnection", socket.id, peers[socket.id]);
 
     socket.on("move", (data) => {
-      if (peers[socket.id] && data) {
+      // --- BUGFIX: Add validation to prevent server state corruption ---
+      if (peers[socket.id] && data && Array.isArray(data.position) && Array.isArray(data.rotation)) {
         peers[socket.id].position = data.position;
         peers[socket.id].rotation = data.rotation;
         peers[socket.id].isShouting = !!data.isShouting;

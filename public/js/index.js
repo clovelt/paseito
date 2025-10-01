@@ -127,11 +127,12 @@ function removePeer(id) {
 function updatePeerPositions(positions) {
   lerpValue = 0;
   for (let id in positions) {
-    if (peers[id]) {
+    // --- BUGFIX: Add a check to ensure peer and position data exist before using them ---
+    if (peers[id] && positions[id] && positions[id].position && positions[id].rotation) {
       peers[id].previousPosition.copy(peers[id].group.position);
       peers[id].previousRotation.copy(peers[id].group.quaternion);
-      peers[id].desiredPosition = new THREE.Vector3().fromArray(positions[id].position);
-      peers[id].desiredRotation = new THREE.Quaternion().fromArray(positions[id].rotation);
+      peers[id].desiredPosition.fromArray(positions[id].position);
+      peers[id].desiredRotation.fromArray(positions[id].rotation);
       peers[id].isShouting = positions[id].isShouting;
     }
   }
