@@ -33,6 +33,10 @@ const qualityButton = document.getElementById('quality-button');
 const runButton = document.getElementById('run-button');
 const micButton = document.getElementById('mic-button');
 const cameraButton = document.getElementById('camera-button');
+const addSignButton = document.getElementById('add-sign-button');
+const photoButton = document.getElementById('photo-button');
+const settingsButton = document.getElementById('settings-button');
+const settingsMenu = document.getElementById('settings-menu-container');
 
 function init() {
   scene = new THREE.Scene();
@@ -86,10 +90,11 @@ function init() {
   communications.on("data", (msg) => {
     console.log("Received message:", msg);
     if (msg.type == "box") onNewBox(msg);
+    if (msg.type == "sign") onNewSign(msg);
   });
 
   let width = window.innerWidth;
-  let height = window.innerHeight * 0.9;
+  let height = window.innerHeight;
 
   camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
   camera.position.set(-100, 75, 245);
@@ -99,7 +104,7 @@ function init() {
   listener = new THREE.AudioListener();
   camera.add(listener);
 
-  renderer = new THREE.WebGLRenderer({ antialiasing: true });
+  renderer = new THREE.WebGLRenderer({ antialiasing: true, preserveDrawingBuffer: true });
   renderer.setSize(width, height);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -157,6 +162,56 @@ function init() {
     controls.toggleRun();
   });
 
+  addSignButton.addEventListener('click', () => {
+    const text = prompt("Enter sign text:", "");
+    if (text && text.trim() !== "") {
+      const position = new THREE.Vector3();
+      const direction = new THREE.Vector3();
+
+      camera.getWorldDirection(direction);
+      position.copy(camera.position).add(direction.multiplyScalar(10));
+      const raycaster = new THREE.Raycaster(position, new THREE.Vector3(0, -1, 0));
+      raycaster.layers.set(COLLISION_LAYER);
+      const intersects = raycaster.intersectObject(scene, true);
+      if(intersects.length > 0) {
+        position.y = intersects[0].point.y;
+      }
+
+      const msg = {
+        type: "sign",
+        data: {
+          position: position.toArray(),
+          rotation: camera.quaternion.toArray(),
+          text: text.trim()
+        }
+      };
+      communications.sendData(msg);
+    }
+  });
+  
+  // --- SOLUTION: Replaced toDataURL with toBlob for robust downloading ---
+  photoButton.addEventListener('click', () => {
+    if (isHighQuality) {
+        composer.render();
+    } else {
+        renderer.render(scene, camera);
+    }
+    
+    renderer.domElement.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = 'paseito_capture.png';
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url); // Clean up memory
+    }, 'image/png');
+  });
+
+  // --- SOLUTION: Add listener to toggle the settings menu ---
+  settingsButton.addEventListener('click', () => {
+    settingsMenu.classList.toggle('open');
+  });
+
   window.addEventListener('keydown', (event) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     switch(event.key.toLowerCase()) {
@@ -172,11 +227,10 @@ function init() {
     }
   });
 
-  // --- SOLUTION: Fix the race condition by querying for the element inside the function ---
   const userList = document.getElementById('user-list-container');
   const updateVideoPosition = () => {
     const videoPreview = document.getElementById('local_video');
-    if (!videoPreview) return; // If element doesn't exist yet, do nothing.
+    if (!videoPreview) return;
 
     const listRect = userList.getBoundingClientRect();
     videoPreview.style.bottom = `${window.innerHeight - listRect.top + 10}px`;
@@ -184,7 +238,6 @@ function init() {
 
   const observer = new ResizeObserver(updateVideoPosition);
   observer.observe(userList);
-
 
   document.getElementById("canvas-container").append(renderer.domElement);
   window.addEventListener("resize", onWindowResize, false);
@@ -322,16 +375,11 @@ function update() {
 
 function onWindowResize() {
   let width = window.innerWidth;
-  let height = Math.floor(window.innerHeight * 0.9);
+  let height = window.innerHeight;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
   composer.setSize(width, height);
-}
-
-function addBox() {
-  let msg = { type: "box", data: { x: camera.position.x, y: camera.position.y, z: camera.position.z } };
-  communications.sendData(msg);
 }
 
 function onNewBox(msg) {
@@ -342,6 +390,79 @@ function onNewBox(msg) {
   mesh.position.set(pos.x, pos.y, pos.z);
   scene.add(mesh);
 }
+
+function onNewSign(msg) {
+  const POST_HEIGHT = 4;
+  const POST_RADIUS = 0.1;
+  const BOARD_WIDTH = 3;
+  const BOARD_HEIGHT = 2;
+  const BOARD_DEPTH = 0.2;
+
+  const postGeometry = new THREE.CylinderGeometry(POST_RADIUS, POST_RADIUS, POST_HEIGHT);
+  const postMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 });
+  const post = new THREE.Mesh(postGeometry, postMaterial);
+  post.position.y = POST_HEIGHT / 2;
+  post.castShadow = true;
+  post.receiveShadow = true;
+
+  const boardGeometry = new THREE.BoxGeometry(BOARD_WIDTH, BOARD_HEIGHT, BOARD_DEPTH);
+  const boardMaterial = new THREE.MeshStandardMaterial({ color: 0xdeb887 });
+  const board = new THREE.Mesh(boardGeometry, boardMaterial);
+  board.position.y = POST_HEIGHT;
+  board.castShadow = true;
+  board.receiveShadow = true;
+  
+  const canvas = document.createElement('canvas');
+  const canvasSize = 256;
+  canvas.width = canvasSize * (BOARD_WIDTH / BOARD_HEIGHT);
+  canvas.height = canvasSize;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#402810';
+  context.font = '24px sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  
+  const words = msg.data.text.split(' ');
+  let line = '';
+  let lines = [];
+  const maxWidth = canvas.width - 20;
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = context.measureText(testLine);
+    const testWidth = metrics.width;
+    if (testWidth > maxWidth && n > 0) {
+      lines.push(line);
+      line = words[n] + ' ';
+    } else {
+      line = testLine;
+    }
+  }
+  lines.push(line);
+  
+  const lineHeight = 28;
+  const startY = (canvas.height - (lines.length - 1) * lineHeight) / 2;
+  for(let i = 0; i < lines.length; i++) {
+    context.fillText(lines[i], canvas.width / 2, startY + i * lineHeight);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const textMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+  const textGeometry = new THREE.PlaneGeometry(BOARD_WIDTH, BOARD_HEIGHT);
+  const textPlane = new THREE.Mesh(textGeometry, textMaterial);
+  textPlane.position.y = POST_HEIGHT;
+  textPlane.position.z = BOARD_DEPTH / 2 + 0.01;
+
+  const sign = new THREE.Group();
+  sign.add(post);
+  sign.add(board);
+  sign.add(textPlane);
+
+  sign.position.fromArray(msg.data.position);
+  sign.quaternion.fromArray(msg.data.rotation);
+  
+  scene.add(sign);
+}
+
 
 function addUserToList(id, isLocal = false) {
     const userItem = document.createElement('div');

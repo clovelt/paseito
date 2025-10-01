@@ -134,7 +134,8 @@ export class FirstPersonControls {
             if (joystickZone.contains(e.target)) return;
             e.preventDefault();
             if (this.isUserInteracting && e.touches.length === 1) {
-                this.lon = (this.onPointerDownPointerX - e.touches[0].clientX) * -0.3 + this.onPointerDownLon;
+                // --- THE DEFINITIVE FIX FOR MOBILE HORIZONTAL INVERSION ---
+                this.lon = (this.onPointerDownPointerX - e.touches[0].clientX) * 0.3 + this.onPointerDownLon;
                 this.lat = (e.touches[0].clientY - this.onPointerDownPointerY) * -0.3 + this.onPointerDownLat;
                 this.computeCameraOrientation();
             }
@@ -336,7 +337,6 @@ export class FirstPersonControls {
         this.lat = Math.max(-85, Math.min(85, this.lat));
         const euler = new THREE.Euler(0, 0, 0, 'YXZ');
         euler.x = THREE.MathUtils.degToRad(this.lat);
-        // --- SOLUTION: THIS IS THE FINAL, CORRECTED LOGIC ---
         euler.y = THREE.MathUtils.degToRad(this.lon);
         this.camera.quaternion.setFromEuler(euler);
     }
