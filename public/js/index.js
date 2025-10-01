@@ -21,7 +21,7 @@ let camera, renderer, scene, composer;
 let controls;
 let listener;
 let communications;
-let dirLight, sky, sun, sunSphere; // Make sky and sun globally accessible
+let dirLight, sky, sun, sunSphere; // Make sunSphere globally accessible
 let isHighQuality = true;
 
 const COLLISION_LAYER = 3;
@@ -37,7 +37,6 @@ const cameraButton = document.getElementById('camera-button');
 function init() {
   scene = new THREE.Scene();
   
-  // --- NEW: Gradient Sky ---
   const canvas = document.createElement('canvas');
   canvas.width = 1;
   canvas.height = 128;
@@ -93,7 +92,6 @@ function init() {
   let height = window.innerHeight * 0.9;
 
   camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
-  // --- SOLUTION: Raise initial spawn point to prevent falling through floor ---
   camera.position.set(-100, 75, 245);
   camera.layers.enable(COLLISION_LAYER);
   scene.add(camera);
@@ -133,7 +131,6 @@ function init() {
   sunSphere = new THREE.Mesh(sunGeometry, sunMaterial);
   sunSphere.position.copy(sun).multiplyScalar(1800);
   scene.add(sunSphere);
-
   
   addLights();
 
@@ -155,7 +152,6 @@ function init() {
   cameraButton.addEventListener('click', () => {
     const isEnabled = communications.toggleCamera();
     cameraButton.classList.toggle('active', isEnabled);
-    cameraButton.innerHTML = isEnabled ? '<i class="fa-solid fa-video"></i>' : '<i class="fa-solid fa-video-slash"></i>';
   });
   runButton.addEventListener('click', () => {
     controls.toggleRun();
@@ -176,12 +172,26 @@ function init() {
     }
   });
 
+  // --- SOLUTION: Fix the race condition by querying for the element inside the function ---
+  const userList = document.getElementById('user-list-container');
+  const updateVideoPosition = () => {
+    const videoPreview = document.getElementById('local_video');
+    if (!videoPreview) return; // If element doesn't exist yet, do nothing.
+
+    const listRect = userList.getBoundingClientRect();
+    videoPreview.style.bottom = `${window.innerHeight - listRect.top + 10}px`;
+  };
+
+  const observer = new ResizeObserver(updateVideoPosition);
+  observer.observe(userList);
+
 
   document.getElementById("canvas-container").append(renderer.domElement);
   window.addEventListener("resize", onWindowResize, false);
   scene.add(new THREE.AxesHelper(10));
   
   setQuality(isHighQuality);
+  updateVideoPosition();
   update();
 }
 
@@ -191,21 +201,15 @@ function setQuality(high) {
   isHighQuality = high;
   qualityButton.classList.toggle('active', isHighQuality);
 
-  // --- COMPREHENSIVE LOW-QUALITY OPTIMIZATIONS ---
-
-  // 1. Toggle Shadows and the main directional light
   renderer.shadowMap.enabled = isHighQuality;
   if (dirLight) {
     dirLight.castShadow = isHighQuality;
-    dirLight.visible = isHighQuality; // Disable the most expensive light entirely
+    dirLight.visible = isHighQuality;
   }
   
-  // 2. Adjust render resolution (pixel ratio)
-  // This is a massive performance boost on low quality
   const pixelRatio = isHighQuality ? window.devicePixelRatio : window.devicePixelRatio * 0.75;
   renderer.setPixelRatio(pixelRatio);
 
-  // 3. Adjust Fog distance
   if (isHighQuality) {
       scene.fog.near = 800;
       scene.fog.far = 2200;
@@ -214,11 +218,8 @@ function setQuality(high) {
       scene.fog.far = 1500;
   }
   
-  // The update() loop already handles bypassing the EffectComposer, which is the 4th optimization.
-  // We call onWindowResize to ensure the renderer and composer dimensions are updated correctly.
   onWindowResize();
 }
-
 
 function addLights() {
   const hemisphereLight = new THREE.HemisphereLight(0xadd8e6, 0xfcebb4, 1.2);

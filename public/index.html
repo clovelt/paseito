@@ -30,17 +30,16 @@
       video:not(#local_video), audio {
         display: none;
       }
-      /* --- SOLUTION: Style and position the local video preview --- */
+      /* --- SOLUTION: Style the video preview (positioning is handled by JS) --- */
       #local_video {
         position: absolute;
         width: 120px;
         height: 120px;
         right: 20px;
-        bottom: 230px; /* Positioned above user list (200px height + 10px padding + 20px margin) */
         border: 2px solid rgba(255, 255, 255, 0.8);
         border-radius: 8px;
         z-index: 11;
-        transform: scaleX(-1); /* Mirror effect */
+        transform: scaleX(-1);
         object-fit: cover;
         background-color: black;
       }
@@ -72,7 +71,8 @@
         color: white;
         font-family: sans-serif;
         font-size: 14px;
-        max-height: 200px;
+        /* --- SOLUTION: Set max-height to trigger scrollbar sooner --- */
+        max-height: 120px; /* Approx. 5 users */
         overflow-y: auto;
         z-index: 10;
         min-width: 180px;

@@ -33,7 +33,6 @@ export class FirstPersonControls {
         this.phi = 0
         this.theta = 0;
         
-        // --- SOLUTION: Vector to hold analog joystick input ---
         this.joystickVector = new THREE.Vector2(0,0);
         
         this.setupControls()
@@ -69,7 +68,6 @@ export class FirstPersonControls {
 
         const manager = nipplejs.create(options);
 
-        // --- SOLUTION: Use joystick vector for smooth analog movement ---
         manager.on('move', (evt, data) => {
             if (data.angle && data.force > 0.3) {
                 const angle = data.angle.radian;
@@ -116,12 +114,10 @@ export class FirstPersonControls {
             this.renderer.domElement.requestPointerLock();
         });
 
-        // --- SOLUTION: Prevent touch conflict between joystick and looking ---
         const joystickZone = document.getElementById('joystick-container');
         
         // Mobile Touch Controls
         this.renderer.domElement.addEventListener('touchstart', (e) => {
-            // If the touch starts inside the joystick, let the joystick handle it exclusively.
             if (joystickZone.contains(e.target)) return;
             
             e.preventDefault();
@@ -214,11 +210,9 @@ export class FirstPersonControls {
         const rawDelta = (time - this.prevTime) / 1000;
         const delta = Math.min(rawDelta, 0.1);
         
-        // Keyboard direction
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         
-        // --- SOLUTION: If joystick is active, it overrides keyboard direction ---
         if (this.joystickVector.lengthSq() > 0) {
             this.direction.x = this.joystickVector.x;
             this.direction.z = this.joystickVector.y;
@@ -251,7 +245,6 @@ export class FirstPersonControls {
         this.velocity.z -= this.velocity.z * 10.0 * delta;
 
         if (isMoving) {
-            // Normalize the direction vector to ensure consistent speed
             const moveDirection = this.direction.clone().normalize();
             this.velocity.z -= moveDirection.z * this.currentSpeed * delta;
             this.velocity.x -= moveDirection.x * this.currentSpeed * delta;
@@ -343,7 +336,8 @@ export class FirstPersonControls {
         this.lat = Math.max(-85, Math.min(85, this.lat));
         const euler = new THREE.Euler(0, 0, 0, 'YXZ');
         euler.x = THREE.MathUtils.degToRad(this.lat);
-        euler.y = THREE.MathUtils.degToRad(-this.lon);
+        // --- SOLUTION: THIS IS THE FINAL, CORRECTED LOGIC ---
+        euler.y = THREE.MathUtils.degToRad(this.lon);
         this.camera.quaternion.setFromEuler(euler);
     }
 }

@@ -134,6 +134,8 @@ export class Communications {
       // Check if it's not the dummy track
       if (videoTracks[0].label !== 'canvas') {
         videoTracks[0].enabled = !videoTracks[0].enabled;
+        const localVideo = document.getElementById('local_video');
+        if(localVideo) localVideo.style.display = videoTracks[0].enabled ? 'block' : 'none';
         return videoTracks[0].enabled;
       }
     }
@@ -290,14 +292,14 @@ function createPeerDOMElements(_id) {
   videoElement.id = _id + "_video";
   videoElement.autoplay = true;
   videoElement.muted = true;
-  // videoElement.style = "visibility: hidden;";
-
   document.body.appendChild(videoElement);
 
   let audioEl = document.createElement("audio");
   audioEl.setAttribute("id", _id + "_audio");
   audioEl.controls = "controls";
-  audioEl.volume = 0; // initialize at 0 volume.  This will be set by 3D scene.
+  // --- SOLUTION: Mute audio elements by default to allow autoplay ---
+  audioEl.muted = true;
+  audioEl.volume = 0;
   document.body.appendChild(audioEl);
 
   audioEl.addEventListener("loadeddata", () => {
