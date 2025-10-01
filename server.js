@@ -8,7 +8,6 @@ const express = require("express");
 const app = express();
 
 let db;
-// --- SOLUTION: Counter for sequential user names ---
 let userCounter = 1;
 
 if (process.env.DATABASE_URL) {
@@ -58,6 +57,25 @@ const server = app.listen(port, "0.0.0.0", () => {
 const io = require("socket.io")().listen(server);
 let peers = {};
 
+const availableMaps = {
+    "Resort": "https://gustavochico.com/paseito/resort.glb",
+    "De_Dust2": "https://gustavochico.com/paseito/dedust2.glb",
+    "Rainbow Road": "https://gustavochico.com/paseito/rainbowRoad.glb",
+};
+const fallbackMap = 'https://gustavochico.com/paseito/resort.glb';
+
+let serverState = {
+    currentMap: availableMaps["Resort"],
+    availableMaps: availableMaps,
+    fallbackMap: fallbackMap,
+    voiceDistanceMultiplier: 2.25,
+    shoutDistanceMultiplier: 9.0,
+    playerScale: 1.0,
+    maxSpeed: 500, // This will represent runSpeed
+    acceleration: 600
+};
+
+
 function main() {
   setupSocketServer();
   setInterval(() => {
@@ -71,7 +89,7 @@ function setupSocketServer() {
   io.on("connection", (socket) => {
     console.log(`Peer joined with ID ${socket.id}. There are ${io.engine.clientsCount} peer(s) connected.`);
 
-    // --- SOLUTION: Assign a sequential name to the new user ---
+    // Assign a sequential name to the new user
     const userName = "User " + userCounter++;
     peers[socket.id] = { 
       position: [0, 0.5, 0], 
@@ -80,20 +98,18 @@ function setupSocketServer() {
       isShouting: false
     };
 
-    // --- SOLUTION: Send the entire peers object with names ---
-    socket.emit("introduction", peers);
-    socket.emit("userPositions", peers);
+    // Send the entire peers object with names and current server state
+    socket.emit("introduction", { peers: peers, state: serverState });
 
     db.find({}, (err, docs) => {
       if (err) return console.error("DB find error:", err);
       if (docs) docs.forEach(doc => socket.emit("data", doc));
     });
 
-    // --- SOLUTION: Send new peer's data (including name) to others ---
+    // Send new peer's data (including name) to others
     socket.broadcast.emit("peerConnection", socket.id, peers[socket.id]);
 
     socket.on("move", (data) => {
-      // --- BUGFIX: Add validation to prevent server state corruption ---
       if (peers[socket.id] && data && Array.isArray(data.position) && Array.isArray(data.rotation)) {
         peers[socket.id].position = data.position;
         peers[socket.id].rotation = data.rotation;
@@ -120,7 +136,23 @@ function setupSocketServer() {
         });
     });
 
-    // --- SOLUTION: Add handlers for new admin commands ---
+    socket.on("admin:changeMap", (mapUrl) => {
+        if (Object.values(availableMaps).includes(mapUrl)) {
+            console.log(`Admin command: changeMap to ${mapUrl} from ${socket.id}`);
+            serverState.currentMap = mapUrl;
+            io.sockets.emit("changeMap", mapUrl);
+        }
+    });
+
+    socket.on("admin:updateSetting", ({ key, value }) => {
+        console.log(`Admin command: updateSetting ${key} to ${value} from ${socket.id}`);
+        if (key in serverState) {
+            serverState[key] = parseFloat(value); // Ensure value is a number
+            io.sockets.emit("updateSetting", { key, value: serverState[key] });
+        }
+    });
+
+    // Add handlers for new admin commands
     socket.on("admin:broadcastMessage", (message) => {
         console.log(`Admin command: broadcast "${message}" from ${socket.id}`);
         io.sockets.emit("serverMessage", `ADMIN: ${message}`);

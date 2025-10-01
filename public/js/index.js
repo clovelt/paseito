@@ -8,7 +8,7 @@ import * as THREE from "three";
 import { Communications } from "./communications.js";
 import { FirstPersonControls } from "./libs/firstPersonControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-// --- MODIFIED IMPORTS ---
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { Sky } from "three/addons/objects/Sky.js"; // Use the procedural Sky object
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -21,6 +21,16 @@ let camera, renderer, scene, composer;
 let controls;
 let listener;
 let communications;
+let currentMapModel = null;
+let fallbackMapUrl = '';
+
+// --- Settings controlled by admin panel ---
+let worldState = {
+    voiceDistanceMultiplier: 1.0, // Multiplier for base distance
+    playerScale: 1.0,
+};
+// ---
+
 let dirLight, sky, sun, sunSphere;
 let isHighQuality = true;
 
@@ -45,7 +55,13 @@ const adminDeleteAllButton = document.getElementById('admin-delete-all');
 const adminBroadcastButton = document.getElementById('admin-broadcast-message');
 const adminTeleportButton = document.getElementById('admin-teleport-all');
 
-// --- SOLUTION: Moved helper functions to the module scope to fix ReferenceError ---
+const adminChangeMapButton = document.getElementById('admin-change-map');
+const mapSelectorContainer = document.getElementById('map-selector-container');
+const mapSelect = document.getElementById('map-select');
+const voiceSlider = document.getElementById('voice-slider');
+const sizeSlider = document.getElementById('size-slider');
+const speedSlider = document.getElementById('speed-slider');
+const accelSlider = document.getElementById('accel-slider');
 
 function addPeer(id, peerData) {
   const MII_HEAD_RADIUS = 0.65;
@@ -107,6 +123,8 @@ function addPeer(id, peerData) {
   const group = new THREE.Group();
   group.add(head, body, armL, armR, legL, legR);
   group.position.y = MII_HEAD_RADIUS + MII_BODY_HEIGHT + MII_LEG_LENGTH; // Adjust so feet are on the ground
+  // Apply current scale
+  group.scale.set(worldState.playerScale, worldState.playerScale, worldState.playerScale);
 
   scene.add(group);
   peers[id] = {};
@@ -127,7 +145,6 @@ function removePeer(id) {
 function updatePeerPositions(positions) {
   lerpValue = 0;
   for (let id in positions) {
-    // --- BUGFIX: Add a check to ensure peer and position data exist before using them ---
     if (peers[id] && positions[id] && positions[id].position && positions[id].rotation) {
       peers[id].previousPosition.copy(peers[id].group.position);
       peers[id].previousRotation.copy(peers[id].group.quaternion);
@@ -232,7 +249,74 @@ function removeUserFromList(id) {
     if (userItem) { userItem.remove(); }
 }
 
-function init() {
+function loadMap(mapUrl, fallbackUrl) {
+    if (currentMapModel) {
+        scene.remove(currentMapModel);
+        currentMapModel = null;
+    }
+
+    const loadingManager = new THREE.LoadingManager();
+    loadingManager.onLoad = () => { console.log("Map loaded!"); };
+    loadingManager.onError = (url) => { console.error(`There was an error loading ${url}`); };
+
+    const dracoLoader = new DRACOLoader(loadingManager);
+    dracoLoader.setDecoderPath('js/libs/draco/');
+    const loader = new GLTFLoader(loadingManager);
+    loader.setDRACOLoader(dracoLoader);
+
+    const onModelLoaded = (gltf) => {
+        const model = gltf.scene;
+        // Heuristic scaling based on known models
+        if (mapUrl.includes('resort')) {
+            model.scale.set(0.3, 0.3, 0.3);
+        } else if (mapUrl.includes('dust')) {
+            model.scale.set(1, 1, 1);
+        } else if (mapUrl.includes('rainbow')) {
+            model.scale.set(20, 20, 20);
+        } else {
+            model.scale.set(1, 1, 1);
+        }
+
+        scene.add(model);
+        currentMapModel = model;
+
+        model.traverse((node) => {
+            if (node.isMesh) {
+                node.castShadow = true;
+                node.receiveShadow = true;
+                node.layers.set(COLLISION_LAYER);
+            }
+        });
+    };
+
+    loader.load(
+        mapUrl,
+        onModelLoaded,
+        undefined,
+        (error) => {
+            console.error(`An error happened loading model: ${mapUrl}`, error);
+            if (fallbackUrl) {
+                console.log('Attempting to load fallback model...');
+                loader.load(fallbackUrl, onModelLoaded, undefined, (fallbackError) => {
+                    console.error('The fallback model also failed to load:', fallbackError);
+                });
+            }
+        }
+    );
+}
+
+function applySettings(state) {
+    if (!state) return;
+    
+    // Apply all settings from the state object
+    if (state.voiceDistanceMultiplier) updateSetting('voiceDistanceMultiplier', state.voiceDistanceMultiplier, true);
+    if (state.playerScale) updateSetting('playerScale', state.playerScale, true);
+    if (state.maxSpeed) updateSetting('maxSpeed', state.maxSpeed, true);
+    if (state.acceleration) updateSetting('acceleration', state.acceleration, true);
+}
+
+
+async function init() {
   scene = new THREE.Scene();
   
   const canvas = document.createElement('canvas');
@@ -249,44 +333,6 @@ function init() {
   scene.background = skyTexture;
 
   scene.fog = new THREE.Fog(0xa0d8ef, 1000, 2000);
-
-  const loadingManager = new THREE.LoadingManager();
-  loadingManager.onLoad = () => { console.log("All assets loaded!"); };
-  loadingManager.onProgress = (url, itemsLoaded, itemsTotal) => { console.log(`Loading file: ${url}. \nLoaded ${itemsLoaded} of ${itemsTotal} files.`); };
-  loadingManager.onError = (url) => { console.error(`There was an error loading ${url}`); };
-
-  const loader = new GLTFLoader(loadingManager);
-  loader.load(
-    'https://gustavochico.com/paseito/resort.glb',
-    (gltf) => {
-      const model = gltf.scene;
-      model.scale.set(30, 30, 30);
-      
-      scene.add(model);
-      console.log("Model added to the scene");
-
-      model.traverse((node) => {
-        if (node.isMesh) {
-          node.castShadow = true;
-          node.receiveShadow = true;
-          node.layers.set(COLLISION_LAYER);
-        }
-      });
-    },
-    undefined,
-    (error) => { console.error('An error happened while loading the model:', error); }
-  );
-
-  communications = new Communications();
-  communications.on("peerJoined", (id, peerData) => { addPeer(id, peerData); addUserToList(id, peerData.name); });
-  communications.on("peerLeft", (id) => { removePeer(id); removeUserFromList(id); });
-  communications.on("positions", updatePeerPositions);
-  communications.on("data", (msg) => {
-    if (msg.type == "sign") onNewSign(msg);
-  });
-  communications.on("clearAllObjects", clearAllSigns);
-  communications.on("serverMessage", (message) => { alert(message); });
-
 
   let width = window.innerWidth;
   let height = window.innerHeight;
@@ -342,6 +388,45 @@ function init() {
   composer.addPass(new OutputPass());
 
   controls = new FirstPersonControls(scene, camera, renderer);
+  
+  communications = new Communications();
+  await communications.initialize();
+
+  // Handle introduction event which now contains full world state
+  communications.on("introduction", ({ peers: initialPeers, state }) => {
+      console.log("Received introduction:", state);
+      fallbackMapUrl = state.fallbackMap;
+      loadMap(state.currentMap, fallbackMapUrl);
+      applySettings(state);
+
+      // Populate admin map selector
+      mapSelectorContainer.style.display = 'block';
+      for (const name in state.availableMaps) {
+          const option = new Option(name, state.availableMaps[name]);
+          mapSelect.add(option);
+      }
+      mapSelect.value = state.currentMap;
+
+      for (let id in initialPeers) {
+          if (id !== communications.socket.id) {
+              addPeer(id, initialPeers[id]);
+              addUserToList(id, initialPeers[id].name);
+          }
+      }
+  });
+
+  communications.on("peerJoined", (id, peerData) => { addPeer(id, peerData); addUserToList(id, peerData.name); });
+  communications.on("peerLeft", (id) => { removePeer(id); removeUserFromList(id); });
+  communications.on("positions", updatePeerPositions);
+  communications.on("data", (msg) => {
+    if (msg.type == "sign") onNewSign(msg);
+  });
+  communications.on("clearAllObjects", clearAllSigns);
+  communications.on("serverMessage", (message) => { alert(message); });
+
+  communications.socket.on("changeMap", (mapUrl) => loadMap(mapUrl, fallbackMapUrl));
+  communications.socket.on("updateSetting", ({ key, value }) => updateSetting(key, value));
+
   
   qualityButton.addEventListener('click', () => setQuality(!isHighQuality));
   micButton.addEventListener('click', () => {
@@ -441,6 +526,26 @@ function init() {
       }
   });
 
+  adminChangeMapButton.addEventListener('click', () => {
+      const selectedMap = mapSelect.value;
+      if (selectedMap && confirm(`Are you sure you want to change the map for everyone to ${mapSelect.options[mapSelect.selectedIndex].text}?`)) {
+          communications.socket.emit("admin:changeMap", selectedMap);
+          adminPanel.style.display = 'none';
+      }
+  });
+  
+  // Admin Sliders
+  const setupSlider = (slider, key, valueLabel) => {
+      slider.addEventListener('input', () => {
+          valueLabel.textContent = slider.value;
+          communications.socket.emit("admin:updateSetting", { key, value: slider.value });
+      });
+  };
+  setupSlider(voiceSlider, 'voiceDistanceMultiplier', document.getElementById('voice-value'));
+  setupSlider(sizeSlider, 'playerScale', document.getElementById('size-value'));
+  setupSlider(speedSlider, 'maxSpeed', document.getElementById('speed-value'));
+  setupSlider(accelSlider, 'acceleration', document.getElementById('accel-value'));
+
   window.addEventListener('keydown', (event) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     switch(event.key.toLowerCase()) {
@@ -480,6 +585,37 @@ function init() {
   }
 
   update();
+}
+
+function updateSetting(key, value, isInitial = false) {
+    const numericValue = parseFloat(value);
+    switch(key) {
+        case 'voiceDistanceMultiplier':
+            worldState.voiceDistanceMultiplier = numericValue;
+            if (!isInitial) voiceSlider.value = numericValue;
+            document.getElementById('voice-value').textContent = numericValue;
+            break;
+        case 'playerScale':
+            worldState.playerScale = numericValue;
+            for (const id in peers) {
+                if (peers[id].group) {
+                    peers[id].group.scale.set(numericValue, numericValue, numericValue);
+                }
+            }
+            if (!isInitial) sizeSlider.value = numericValue;
+            document.getElementById('size-value').textContent = numericValue;
+            break;
+        case 'maxSpeed':
+            controls.updateMovementSettings({ maxSpeed: numericValue });
+            if (!isInitial) speedSlider.value = numericValue;
+            document.getElementById('speed-value').textContent = numericValue;
+            break;
+        case 'acceleration':
+            controls.updateMovementSettings({ acceleration: numericValue });
+            if (!isInitial) accelSlider.value = numericValue;
+            document.getElementById('accel-value').textContent = numericValue;
+            break;
+    }
 }
 
 function setQuality(high) {
@@ -541,10 +677,9 @@ function updatePeerVolumes() {
     if (audioEl && peers[id] && peers[id].group) {
       let distSquared = camera.position.distanceToSquared(peers[id].group.position);
       
-      // --- SOLUTION: Use shouting state to determine audio distance ---
       const isShouting = peers[id].isShouting;
       // Normal hearing distance is ~33 units. Shouting is ~67 units.
-      const distMult = isShouting ? 9.0 : 2.25;
+      const distMult = (isShouting ? 9.0 : 2.25) * worldState.voiceDistanceMultiplier;
       let maxDistSquared = 500 * distMult;
 
       if (distSquared > maxDistSquared) {

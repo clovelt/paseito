@@ -15,17 +15,17 @@ export class Communications {
     // Our local media stream (i.e. webcam and microphone stream)
     this.localMediaStream = null;
 
-    this.initialize();
-
-    // --- SOLUTION: Restored the initialization of the event callbacks object ---
     this.userDefinedCallbacks = {
       peerJoined: [],
       peerLeft: [],
       positions: [],
+      introduction: [],
       data: [],
       clearAllObjects: [],
       serverMessage: []
     };
+
+    // this.initialize(); // THIS LINE IS REMOVED
   }
 
   async initialize() {
@@ -163,7 +163,6 @@ export class Communications {
       this.callEventCallback("data", data);
     });
     
-    // --- SOLUTION: Add listeners for new server events ---
     this.socket.on("clearAllObjects", () => {
         this.callEventCallback("clearAllObjects");
     });
@@ -172,18 +171,20 @@ export class Communications {
     });
 
 
-    this.socket.on("introduction", (allPeers) => {
+    this.socket.on("introduction", (data) => {
+      // This is the new part: Pass the full data payload to the custom event system
+      this.callEventCallback("introduction", data);
+
+      // This is the original part: set up WebRTC connections for all peers
+      const allPeers = data.peers;
       for (let id in allPeers) {
         if (id !== this.socket.id) {
-          console.log("Adding peer with id " + id);
+          console.log("Setting up peer connection for " + id);
           this.peers[id] = {};
-
           let pc = this.createPeerConnection(id, true);
           this.peers[id].peerConnection = pc;
-
           createPeerDOMElements(id);
-          // Pass the peerData (which includes the name)
-          this.userDefinedCallbacks["peerJoined"].forEach(callback => callback(id, allPeers[id]));
+          // We no longer need to call peerJoined here, as the introduction event in index.js handles the initial setup
         }
       }
     });
@@ -234,7 +235,7 @@ export class Communications {
           urls: 'stun:stun.l.google.com:19302'
         },
         {
-          urls: 'stun:global.stun.twilio.com:3478'
+          urls: 'global.stun.twilio.com:3478'
         },
         {
           urls: "turn:openrelay.metered.ca:80",
@@ -287,12 +288,12 @@ function createPeerDOMElements(_id) {
   videoElement.id = _id + "_video";
   videoElement.autoplay = true;
   videoElement.muted = true;
+  videoElement.setAttribute("playsinline", ""); // Important for iOS
   document.body.appendChild(videoElement);
 
   let audioEl = document.createElement("audio");
   audioEl.setAttribute("id", _id + "_audio");
   audioEl.controls = "controls";
-  audioEl.muted = true;
   audioEl.volume = 0;
   document.body.appendChild(audioEl);
 
@@ -310,15 +311,22 @@ function updatePeerDOMElements(_id, stream) {
   if (videoTrack) {
     let videoStream = new MediaStream([videoTrack]);
     const videoElement = document.getElementById(_id + "_video");
+    if (_id === "local") {
+        const localVideoPreview = document.getElementById("local_video");
+        if(localVideoPreview) localVideoPreview.srcObject = videoStream;
+    }
     videoElement.srcObject = videoStream;
   }
   if (audioTrack) {
     let audioStream = new MediaStream([audioTrack]);
     let audioEl = document.getElementById(_id + "_audio");
     audioEl.srcObject = audioStream;
-    audioEl.muted = false;
+    if(_id !== "local") {
+       audioEl.muted = false;
+    }
   }
 }
+
 
 function cleanupPeerDomElements(_id) {
   let videoEl = document.getElementById(_id + "_video");
@@ -326,7 +334,7 @@ function cleanupPeerDomElements(_id) {
     videoEl.remove();
   }
 
-  let audioEl = document.getElementById(_id + "audio");
+  let audioEl = document.getElementById(_id + "_audio");
   if (audioEl != null) {
     audioEl.remove();
   }

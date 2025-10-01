@@ -1,8 +1,12 @@
-paseito.
+paseito. 
 
-This [three.js](threejs.org) template allows multiplayer three.js scenes with integrated audio/video capabilities.  It uses a node server running socket.io to provide multiplayer functionality as well as WebRTC signaling.
+Simulador de tours turísiticos digitales. Roquekes x Clovelt 2025.
 
-![image of multiplayer 3D scene](/docs/images/threejs-webrtc.gif)
+Digital tour simulator. Roquekes x Clovelt 2025.
+
+Powered by [three.js](threejs.org), allows multiplaye scenes with integrated audio/video capabilities.  It uses a node server running socket.io to provide multiplayer functionality as well as WebRTC signaling.
+
+![image of multiplayer 3D scene](/docs/images/paseito.gif)
 
 ## Quickstart:
 
@@ -32,7 +36,7 @@ This space is built using a number of technologies, including:
 
 ## Credits:
 
-Forked from [threejs-webrtc](https://github.com/AidanNelson/threejs-webrtc), models from Sketchfab and Models Resource.
+Forked from [threejs-webrtc](https://github.com/AidanNelson/threejs-webrtc), models from Sketchfab and Models Resource (hosted externally!).
 
 The original project uses code from a number of sources, including:
 

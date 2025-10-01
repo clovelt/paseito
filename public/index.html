@@ -58,7 +58,6 @@
         background-color: rgba(255, 255, 255, 0.7);
         color: black;
       }
-      /* --- SOLUTION: Repositioned settings menu --- */
       #settings-menu-container {
         position: absolute;
         top: 80px;
@@ -102,13 +101,11 @@
       .user-list-item:last-child {
         border-bottom: none;
       }
-      /* --- SOLUTION: User list icon color to white --- */
       .user-list-item i {
         margin-right: 8px;
         color: white;
       }
 
-      /* --- SOLUTION: Inverted colors for mobile jump button --- */
       #jump-button {
         position: absolute;
         bottom: 210px;
@@ -141,6 +138,25 @@
         border-radius: 5px;
         cursor: pointer;
       }
+      #admin-panel .slider-container {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        color: white;
+        font-family: sans-serif;
+        font-size: 12px;
+        margin-top: 10px;
+      }
+      #admin-panel .slider-container label {
+        margin-bottom: 4px;
+      }
+      #admin-panel .slider-container input {
+        width: 150px;
+      }
+      #admin-panel select {
+        width: 100%;
+        padding: 5px;
+      }
        #admin-panel button:disabled {
         background-color: #111;
         color: #777;
@@ -164,7 +180,6 @@
         <i class="fa-solid fa-person-running"></i>
       </button>
 
-      <!-- SOLUTION: Settings menu is now a column at top: 140px -->
       <div id="settings-menu-container">
         <button id="settings-button" class="control-button" title="Settings">
           <i class="fa-solid fa-gear"></i>
@@ -191,10 +206,30 @@
     
     <button id="jump-button" class="control-button"><i class="fa-solid fa-arrow-up"></i></button>
     <div id="admin-panel">
-      <!-- SOLUTION: Added new admin command buttons -->
       <button id="admin-broadcast-message">Broadcast Message</button>
       <button id="admin-teleport-all">Teleport All to Center</button>
       <button id="admin-delete-all">Delete All Signs</button>
+      <div id="map-selector-container" class="slider-container" style="display: none;">
+        <label for="map-select">Change Map:</label>
+        <select id="map-select"></select>
+        <button id="admin-change-map" style="width:100%; margin-top: 5px;">Load Map</button>
+      </div>
+      <div class="slider-container">
+        <label for="voice-slider">Voice Distance: <span id="voice-value">1</span></label>
+        <input type="range" id="voice-slider" min="0.5" max="5" step="0.1" value="1">
+      </div>
+      <div class="slider-container">
+        <label for="size-slider">Player Size: <span id="size-value">1</span></label>
+        <input type="range" id="size-slider" min="0.2" max="3" step="0.1" value="1">
+      </div>
+      <div class="slider-container">
+        <label for="speed-slider">Max Speed: <span id="speed-value">500</span></label>
+        <input type="range" id="speed-slider" min="100" max="1500" step="50" value="500">
+      </div>
+      <div class="slider-container">
+        <label for="accel-slider">Acceleration: <span id="accel-value">600</span></label>
+        <input type="range" id="accel-slider" min="100" max="2000" step="50" value="600">
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>

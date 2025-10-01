@@ -12,9 +12,9 @@ export class FirstPersonControls {
         this.cameraHeight = 5.0
         this.raycaster = new THREE.Raycaster()
         
-        this.walkSpeed = 250;
-        this.runSpeed = 500;
-        this.superSprintSpeed = 1000;
+        this.walkSpeed = 250; // Will be derived from maxSpeed
+        this.runSpeed = 500; // Will be set by maxSpeed
+        this.superSprintSpeed = 1000; // Will be derived from maxSpeed
         this.acceleration = 600;
         this.deceleration = 800;
         this.currentSpeed = 0;
@@ -57,7 +57,15 @@ export class FirstPersonControls {
         this.isRunning = !this.isRunning;
     }
 
-    // --- SOLUTION: Centralized jump logic ---
+    updateMovementSettings(settings) {
+        if (settings.maxSpeed) {
+            this.runSpeed = parseFloat(settings.maxSpeed);
+            this.walkSpeed = this.runSpeed / 2;
+            this.superSprintSpeed = this.runSpeed * 2;
+        }
+        if (settings.acceleration) this.acceleration = parseFloat(settings.acceleration);
+    }
+
     jump() {
         if (this.canJump) {
             this.velocity.y = 30; // jumpSpeed
@@ -124,7 +132,7 @@ export class FirstPersonControls {
         
         // Mobile Touch Controls
         this.renderer.domElement.addEventListener('touchstart', (e) => {
-            if (joystickZone.contains(e.target)) return;
+            if (joystickZone.contains(e.target) || document.getElementById('jump-button').contains(e.target)) return;
             
             e.preventDefault();
             if (e.touches.length === 1) {
@@ -140,9 +148,8 @@ export class FirstPersonControls {
             if (joystickZone.contains(e.target)) return;
             e.preventDefault();
             if (this.isUserInteracting && e.touches.length === 1) {
-                // --- THE DEFINITIVE FIX FOR MOBILE HORIZONTAL INVERSION ---
                 this.lon = (this.onPointerDownPointerX - e.touches[0].clientX) * 0.3 + this.onPointerDownLon;
-                this.lat = (e.touches[0].clientY - this.onPointerDownPointerY) * -0.3 + this.onPointerDownLat;
+                this.lat = (e.touches[0].clientY - this.onPointerDownPointerY) * 0.3 + this.onPointerDownLat;
                 this.computeCameraOrientation();
             }
         }, { passive: false });
@@ -151,13 +158,12 @@ export class FirstPersonControls {
             this.isUserInteracting = false;
         });
 
-        // --- SOLUTION: Add listener for mobile jump button ---
         const jumpButton = document.getElementById('jump-button');
         if (jumpButton) {
             jumpButton.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 this.jump();
-            });
+            }, { passive: false });
         }
 
         // Keyboard movement controls
@@ -227,7 +233,7 @@ export class FirstPersonControls {
         
         if (this.joystickVector.lengthSq() > 0) {
             this.direction.x = this.joystickVector.x;
-            this.direction.z = this.joystickVector.y;
+            this.direction.z = -this.joystickVector.y;
         }
 
         const isMoving = this.moveForward || this.moveBackward || this.moveLeft || this.moveRight || this.joystickVector.lengthSq() > 0;
@@ -258,15 +264,15 @@ export class FirstPersonControls {
 
         if (isMoving) {
             const moveDirection = this.direction.clone().normalize();
-            this.velocity.z -= moveDirection.z * this.currentSpeed * delta;
-            this.velocity.x -= moveDirection.x * this.currentSpeed * delta;
+            this.velocity.z += moveDirection.z * this.currentSpeed * delta;
+            this.velocity.x += moveDirection.x * this.currentSpeed * delta;
         }
 
-        if ((this.velocity.x > 0 && !this.obstacles.left) || (this.velocity.x < 0 && !this.obstacles.right)) {
-            this.camera.translateX(-this.velocity.x * delta);
+        if ((this.velocity.x < 0 && !this.obstacles.left) || (this.velocity.x > 0 && !this.obstacles.right)) {
+            this.camera.translateX(this.velocity.x * delta);
         }
-        if ((this.velocity.z > 0 && !this.obstacles.backward) || (this.velocity.z < 0 && !this.obstacles.forward)) {
-            this.camera.position.add(this.getCameraForwardDirAlongXZPlane().multiplyScalar(-this.velocity.z * delta));
+        if ((this.velocity.z < 0 && !this.obstacles.backward) || (this.velocity.z > 0 && !this.obstacles.forward)) {
+            this.camera.position.add(this.getCameraForwardDirAlongXZPlane().multiplyScalar(this.velocity.z * delta));
         }
 
         let origin = this.camera.position.clone();
