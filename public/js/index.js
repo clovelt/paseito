@@ -48,12 +48,12 @@ const adminTeleportButton = document.getElementById('admin-teleport-all');
 // --- SOLUTION: Moved helper functions to the module scope to fix ReferenceError ---
 
 function addPeer(id, peerData) {
-  const MII_HEAD_RADIUS = 0.5;
-  const MII_BODY_HEIGHT = 1.5;
+  const MII_HEAD_RADIUS = 0.6;
+  const MII_BODY_HEIGHT = 1.8;
   const MII_BODY_WIDTH = 1;
   const MII_LIMB_RADIUS = 0.15;
   const MII_ARM_LENGTH = 0.8;
-  const MII_LEG_LENGTH = 0.9;
+  const MII_LEG_LENGTH = 1.2;
   
   const videoElement = document.getElementById(id + "_video");
   const videoTexture = new THREE.VideoTexture(videoElement);
@@ -77,7 +77,7 @@ function addPeer(id, peerData) {
   body.position.y = -(MII_HEAD_RADIUS + MII_BODY_HEIGHT / 2);
 
   const armL = new THREE.Mesh(armGeo, skinMat);
-  armL.position.set(MII_BODY_WIDTH / 2 + MII_LIMB_RADIUS, -MII_HEAD_RADIUS, 0);
+  armL.position.set(MII_BODY_WIDTH / 2 + MII_LIMB_RADIUS, MII_HEAD_RADIUS/2, 0);
   
   const armR = armL.clone();
   armR.position.x *= -1;
@@ -409,7 +409,7 @@ function init() {
 
   adminMenuButton.addEventListener('click', () => {
     const password = prompt("Enter admin password:");
-    if (password === "admin") {
+    if (password === "gazpacho") {
       adminPanel.style.display = 'flex';
     } else if (password) {
       alert("Incorrect password.");
