@@ -235,6 +235,16 @@ export class Communications {
         },
         {
           urls: 'stun:global.stun.twilio.com:3478'
+        },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+           urls: "turn:openrelay.metered.ca:443",
+           username: "openrelayproject",
+           credential: "openrelayproject"
         }
       ]
     };

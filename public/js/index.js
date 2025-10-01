@@ -48,12 +48,12 @@ const adminTeleportButton = document.getElementById('admin-teleport-all');
 // --- SOLUTION: Moved helper functions to the module scope to fix ReferenceError ---
 
 function addPeer(id, peerData) {
-  const MII_HEAD_RADIUS = 0.6;
-  const MII_BODY_HEIGHT = 1.8;
+  const MII_HEAD_RADIUS = 0.65;
+  const MII_BODY_HEIGHT = 2;
   const MII_BODY_WIDTH = 1;
   const MII_LIMB_RADIUS = 0.15;
   const MII_ARM_LENGTH = 0.9;
-  const MII_LEG_LENGTH = 2;
+  const MII_LEG_LENGTH = 2.2;
   
   const videoElement = document.getElementById(id + "_video");
   const videoTexture = new THREE.VideoTexture(videoElement);
@@ -116,6 +116,7 @@ function addPeer(id, peerData) {
   peers[id].previousRotation = new THREE.Quaternion();
   peers[id].desiredPosition = new THREE.Vector3();
   peers[id].desiredRotation = new THREE.Quaternion();
+  peers[id].isShouting = peerData.isShouting || false;
 }
 
 function removePeer(id) {
@@ -131,6 +132,7 @@ function updatePeerPositions(positions) {
       peers[id].previousRotation.copy(peers[id].group.quaternion);
       peers[id].desiredPosition = new THREE.Vector3().fromArray(positions[id].position);
       peers[id].desiredRotation = new THREE.Quaternion().fromArray(positions[id].rotation);
+      peers[id].isShouting = positions[id].isShouting;
     }
   }
 }
@@ -417,7 +419,7 @@ function init() {
   });
 
   adminDeleteAllButton.addEventListener('click', () => {
-    if (confirm("Are you sure you want to delete ALL signs from the server?")) {
+    if (confirm("Are you sure you want to delete ALL world objects from the server? This cannot be undone.")) {
         communications.socket.emit("admin:deleteAllObjects");
         adminPanel.style.display = 'none';
     }
@@ -537,14 +539,34 @@ function updatePeerVolumes() {
     let audioEl = document.getElementById(id + "_audio");
     if (audioEl && peers[id] && peers[id].group) {
       let distSquared = camera.position.distanceToSquared(peers[id].group.position);
-      if (distSquared > 500) { audioEl.volume = 0; }
-      else { audioEl.volume = Math.min(1, 10 / distSquared); }
+      
+      // --- SOLUTION: Use shouting state to determine audio distance ---
+      const isShouting = peers[id].isShouting;
+      // Normal hearing distance is ~33 units. Shouting is ~67 units.
+      const distMult = isShouting ? 9.0 : 2.25;
+      let maxDistSquared = 500 * distMult;
+
+      if (distSquared > maxDistSquared) {
+        audioEl.volume = 0;
+      } else {
+        audioEl.volume = Math.min(1, (10 * distMult) / distSquared);
+      }
     }
   }
 }
 
-function getPlayerPosition() {
-  return [[camera.position.x, camera.position.y, camera.position.z], [camera.quaternion._x, camera.quaternion._y, camera.quaternion._z, camera.quaternion._w]];
+
+function getPlayerData() {
+  return {
+    position: [camera.position.x, camera.position.y, camera.position.z],
+    rotation: [
+      camera.quaternion._x,
+      camera.quaternion._y,
+      camera.quaternion._z,
+      camera.quaternion._w,
+    ],
+    isShouting: controls.isRunning,
+  };
 }
 
 function update() {
@@ -557,7 +579,7 @@ function update() {
 
   if (frameCount % 25 === 0) updatePeerVolumes();
   if (frameCount % 10 === 0 && communications.socket) {
-    communications.sendPosition(getPlayerPosition());
+    communications.sendPosition(getPlayerData());
   }
   interpolatePositions();
   controls.update();

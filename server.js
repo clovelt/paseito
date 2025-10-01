@@ -76,7 +76,8 @@ function setupSocketServer() {
     peers[socket.id] = { 
       position: [0, 0.5, 0], 
       rotation: [0, 0, 0, 1],
-      name: userName
+      name: userName,
+      isShouting: false
     };
 
     // --- SOLUTION: Send the entire peers object with names ---
@@ -92,9 +93,10 @@ function setupSocketServer() {
     socket.broadcast.emit("peerConnection", socket.id, peers[socket.id]);
 
     socket.on("move", (data) => {
-      if (peers[socket.id]) {
-        peers[socket.id].position = data[0];
-        peers[socket.id].rotation = data[1];
+      if (peers[socket.id] && data) {
+        peers[socket.id].position = data.position;
+        peers[socket.id].rotation = data.rotation;
+        peers[socket.id].isShouting = !!data.isShouting;
       }
     });
 
