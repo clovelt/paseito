@@ -30,19 +30,11 @@ export function createPeerDOMElements(_id, ctx, reverbBuffer) {
 function setupAudioProcessing(id, stream, reverbBuffer) {
     if (!audioContext || !stream.getAudioTracks().length || (peers[id] && peers[id].sourceNode)) return;
 
-    const pannerNode = audioContext.createPanner();
-    pannerNode.panningModel = 'HRTF';
-    pannerNode.distanceModel = 'inverse';
-    pannerNode.refDistance = 1;
-    pannerNode.maxDistance = 10000;
-    pannerNode.rolloffFactor = 2.5;
-    pannerNode.coneInnerAngle = 360;
-    pannerNode.coneOuterAngle = 0;
-    pannerNode.coneOuterGain = 0;
-
+    // Revert to GainNode for simple volume control
+    const gainNode = audioContext.createGain();
     const sourceNode = audioContext.createMediaStreamSource(stream);
-    sourceNode.connect(pannerNode).connect(audioContext.destination);
-    peers[id] = { ...peers[id], sourceNode, pannerNode };
+    sourceNode.connect(gainNode).connect(audioContext.destination);
+    peers[id] = { ...peers[id], sourceNode, gainNode };
 }
 
 export function updatePeerDOMElements({ id, stream, isLocal = false }) {
@@ -82,8 +74,11 @@ export function cleanupPeerDomElements(_id) {
 
   if (peers[_id] && peers[_id].sourceNode) {
       peers[_id].sourceNode.disconnect();
-      if (peers[_id].pannerNode) {
-          peers[_id].pannerNode.disconnect();
+      if (peers[_id].gainNode) {
+          peers[_id].gainNode.disconnect();
+      }
+      if (peers[_id].reverbNode) {
+          peers[_id].reverbNode.disconnect();
       }
   }
 }
@@ -197,52 +192,42 @@ export function interpolatePositions() {
 }
 
 export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
-  if (!audioContext) return;
-
-  // Update listener position to match camera
-  const listener = audioContext.listener;
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const up = camera.up;
-
-  // Check if the modern AudioParam properties exist for the listener
-  if (listener.positionX && typeof listener.positionX.setTargetAtTime === 'function') {
-    listener.positionX.setTargetAtTime(camera.position.x, audioContext.currentTime, 0.1);
-    listener.positionY.setTargetAtTime(camera.position.y, audioContext.currentTime, 0.1);
-    listener.positionZ.setTargetAtTime(camera.position.z, audioContext.currentTime, 0.1);
-    listener.forwardX.setTargetAtTime(forward.x, audioContext.currentTime, 0.1);
-    listener.forwardY.setTargetAtTime(forward.y, audioContext.currentTime, 0.1);
-    listener.forwardZ.setTargetAtTime(forward.z, audioContext.currentTime, 0.1);
-    listener.upX.setTargetAtTime(up.x, audioContext.currentTime, 0.1);
-    listener.upY.setTargetAtTime(up.y, audioContext.currentTime, 0.1);
-    listener.upZ.setTargetAtTime(up.z, audioContext.currentTime, 0.1);
-  } else if (typeof listener.setPosition === 'function' && typeof listener.setOrientation === 'function') {
-    // Fallback for older Web Audio API implementations
-    listener.setPosition(camera.position.x, camera.position.y, camera.position.z);
-    listener.setOrientation(forward.x, forward.y, forward.z, up.x, up.y, up.z);
-  } else {
-    console.warn("AudioListener API not fully supported or recognized. Cannot update listener position/orientation.");
-  }
-
   for (let id in peers) {
-    if (peers[id] && peers[id].group && peers[id].pannerNode) {
-      const peerPosition = peers[id].group.position;
-      const panner = peers[id].pannerNode;
-
-      // Update panner position for 3D audio, checking for AudioParam properties
-      if (panner.positionX && typeof panner.positionX.setTargetAtTime === 'function') {
-        panner.positionX.setTargetAtTime(peerPosition.x, audioContext.currentTime, 0.1);
-        panner.positionY.setTargetAtTime(peerPosition.y, audioContext.currentTime, 0.1);
-        panner.positionZ.setTargetAtTime(peerPosition.z, audioContext.currentTime, 0.1);
-      } else if (typeof panner.setPosition === 'function') {
-        // Fallback for older PannerNode implementations
-        panner.setPosition(peerPosition.x, peerPosition.y, peerPosition.z);
-      } else {
-        console.warn(`PannerNode for peer ${id} API not fully supported or recognized. Cannot update panner position.`);
-      }
-
+    if (peers[id] && peers[id].group && peers[id].gainNode) {
+      let distSquared = camera.position.distanceToSquared(peers[id].group.position);
+      
       const isShouting = peers[id].isShouting;
-      panner.refDistance = (isShouting ? 4.0 : 1.0) * voiceDistanceMultiplier;
-      panner.rolloffFactor = isShouting ? 1.5 : 2.5;
+      const distMult = (isShouting ? 9.0 : 2.25) * voiceDistanceMultiplier;
+      let maxDistSquared = 4500 * distMult;
+      let volume = 0;
+
+      if (distSquared > maxDistSquared) {
+        volume = 0;
+      } else {
+        volume = Math.min(1, (80 * distMult) / distSquared);
+      }
+      
+      peers[id].gainNode.gain.setTargetAtTime(volume, audioContext.currentTime, 0.1);
+
+      // Handle reverb based on distance
+      if (reverbBuffer) {
+          const reverbCutoff = maxDistSquared * 0.2;
+          if (distSquared > reverbCutoff && !peers[id].reverbNode) {
+              // Add reverb when far away
+              const reverbNode = audioContext.createConvolver();
+              reverbNode.buffer = reverbBuffer;
+              peers[id].gainNode.disconnect();
+              peers[id].gainNode.connect(reverbNode);
+              reverbNode.connect(audioContext.destination);
+              peers[id].reverbNode = reverbNode;
+          } else if (distSquared <= reverbCutoff && peers[id].reverbNode) {
+              // Remove reverb when close
+              peers[id].reverbNode.disconnect();
+              peers[id].gainNode.disconnect();
+              peers[id].gainNode.connect(audioContext.destination);
+              delete peers[id].reverbNode;
+          }
+      }
     }
   }
 }
