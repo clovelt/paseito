@@ -175,7 +175,7 @@ export class Communications {
 
     const videoTracks = this.localMediaStream.getVideoTracks();
     if (videoTracks.length > 0) {
-      if (videoTracks[0].label !== 'canvas') {
+      if (!videoTracks[0].label.toLowerCase().includes('canvas')) {
         videoTracks[0].enabled = !videoTracks[0].enabled;
         const localVideo = document.getElementById('local_video');
         if(localVideo) localVideo.style.display = videoTracks[0].enabled ? 'block' : 'none';

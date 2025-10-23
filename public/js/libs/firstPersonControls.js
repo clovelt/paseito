@@ -242,7 +242,7 @@ export class FirstPersonControls {
         
         if (this.joystickVector.lengthSq() > 0) {
             this.direction.x = this.joystickVector.x;
-            this.direction.z = -this.joystickVector.y;
+            this.direction.z = this.joystickVector.y;
         }
 
         const isMoving = this.moveForward || this.moveBackward || this.moveLeft || this.moveRight || this.joystickVector.lengthSq() > 0;

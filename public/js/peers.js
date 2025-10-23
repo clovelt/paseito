@@ -40,11 +40,15 @@ export function createPeerDOMElements(_id, ctx, reverbBuffer) {
 function setupAudioProcessing(id, stream, reverbBuffer) {
     if (!audioContext || !stream.getAudioTracks().length || (peers[id] && peers[id].sourceNode)) return;
 
+    const pannerNode = audioContext.createPanner();
+    pannerNode.panningModel = 'HRTF';
+    pannerNode.distanceModel = 'inverse';
+    pannerNode.refDistance = 1;
+    pannerNode.maxDistance = 10000;
+    pannerNode.rolloffFactor = 2.5;
     const sourceNode = audioContext.createMediaStreamSource(stream);
-    const gainNode = audioContext.createGain();
-    sourceNode.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    peers[id] = { ...peers[id], sourceNode, gainNode };
+    sourceNode.connect(pannerNode).connect(audioContext.destination);
+    peers[id] = { ...peers[id], sourceNode, pannerNode };
 }
 
 export function updatePeerDOMElements({ id, stream, isLocal = false }) {
@@ -61,7 +65,7 @@ export function updatePeerDOMElements({ id, stream, isLocal = false }) {
         const localVideoPreview = document.getElementById('local_video');
         // If the new track is from a canvas, we need to manually update the preview
         // because the original stream from getUserMedia is disconnected.
-        if (videoTrack.label === 'canvas') {
+        if (videoTrack.label.toLowerCase().includes('canvas')) {
             localVideoPreview.srcObject = videoStream;
         }
         if(localVideoPreview) localVideoPreview.srcObject = videoStream;
@@ -86,7 +90,7 @@ export function cleanupPeerDomElements(_id) {
 
   if (peers[_id] && peers[_id].sourceNode) {
       peers[_id].sourceNode.disconnect();
-      peers[_id].gainNode.disconnect();
+      peers[_id].pannerNode.disconnect();
       if (peers[_id].reverbNode) peers[_id].reverbNode.disconnect();
   }
 }
@@ -201,41 +205,18 @@ export function interpolatePositions() {
 
 export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
   for (let id in peers) {
-    if (peers[id] && peers[id].group && peers[id].gainNode) {
-      let distSquared = camera.position.distanceToSquared(peers[id].group.position);
-      
+    if (peers[id] && peers[id].group && peers[id].pannerNode) {
+      const peerPosition = peers[id].group.position;
+      const panner = peers[id].pannerNode;
+
+      // Update panner position for 3D audio
+      panner.positionX.setTargetAtTime(peerPosition.x, audioContext.currentTime, 0.1);
+      panner.positionY.setTargetAtTime(peerPosition.y, audioContext.currentTime, 0.1);
+      panner.positionZ.setTargetAtTime(peerPosition.z, audioContext.currentTime, 0.1);
+
       const isShouting = peers[id].isShouting;
-      const distMult = (isShouting ? 9.0 : 2.25) * voiceDistanceMultiplier;
-      let maxDistSquared = 4500 * distMult;
-      let volume = 0;
-
-      if (distSquared > maxDistSquared) {
-        volume = 0;
-      } else {
-        volume = Math.min(1, (80 * distMult) / distSquared);
-      }
-      
-      peers[id].gainNode.gain.setTargetAtTime(volume, audioContext.currentTime, 0.1);
-
-      // Handle reverb based on distance
-      if (reverbBuffer) {
-          const reverbCutoff = maxDistSquared * 0.2;
-          if (distSquared > reverbCutoff && !peers[id].reverbNode) {
-              // Add reverb when far away
-              const reverbNode = audioContext.createConvolver();
-              reverbNode.buffer = reverbBuffer;
-              peers[id].gainNode.disconnect();
-              peers[id].gainNode.connect(reverbNode);
-              reverbNode.connect(audioContext.destination);
-              peers[id].reverbNode = reverbNode;
-          } else if (distSquared <= reverbCutoff && peers[id].reverbNode) {
-              // Remove reverb when close
-              peers[id].reverbNode.disconnect();
-              peers[id].gainNode.disconnect();
-              peers[id].gainNode.connect(audioContext.destination);
-              delete peers[id].reverbNode;
-          }
-      }
+      panner.refDistance = isShouting ? 4.0 : 1.0;
+      panner.rolloffFactor = isShouting ? 1.5 : 2.5;
     }
   }
 }

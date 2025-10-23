@@ -49,6 +49,7 @@ const runButton = document.getElementById('run-button');
 const micButton = document.getElementById('mic-button');
 const cameraButton = document.getElementById('camera-button');
 const selfieButton = document.getElementById('selfie-button');
+const uploadSelfieButton = document.getElementById('upload-selfie-button');
 const addSignButton = document.getElementById('add-sign-button');
 const photoButton = document.getElementById('photo-button');
 const settingsButton = document.getElementById('settings-button');
@@ -331,10 +332,15 @@ async function init() {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           setAudioContext(audioContext); // Pass context to peers module
 
-          const response = await fetch('/assets/reverb_impulse.mp3');
-          const arrayBuffer = await response.arrayBuffer();
-          reverbBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          console.log("Reverb impulse response loaded successfully.");
+          // Isolate reverb loading so it doesn't block ambient audio
+          try {
+            const response = await fetch('/assets/reverb_impulse.mp3');
+            const arrayBuffer = await response.arrayBuffer();
+            reverbBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            console.log("[AUDIO] Reverb impulse response loaded successfully.");
+          } catch (reverbError) {
+            console.error("[AUDIO] Failed to load reverb, but continuing with other audio.", reverbError);
+          }
           
           ambientAudio = new Audio();
           ambientAudio.loop = true;
@@ -344,7 +350,10 @@ async function init() {
 
           ambientAudio.addEventListener('loadeddata', () => {
             console.log("[AUDIO] 'loadeddata' event fired. Attempting to play.");
-            ambientAudio.play().catch(e => console.error("[AUDIO] Playback failed in 'loadeddata' listener:", e));
+            const playPromise = ambientAudio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(e => console.error("[AUDIO] Playback failed in 'loadeddata' listener:", e));
+            }
           });
 
           isAudioUnlocked = true;
@@ -458,6 +467,36 @@ async function init() {
   });
 
   selfieButton.addEventListener('click', () => {
+      const localVideo = document.getElementById('local_video');
+      const videoTrack = communications.localMediaStream?.getVideoTracks()[0];
+
+      // If the current track is from a canvas OR the camera is off, first enable the camera.
+      if (!videoTrack || !videoTrack.enabled || videoTrack.label.toLowerCase().includes('canvas')) {
+          console.log("Selfie button: Camera not ready, activating it first.");
+          // This simulates a click on the camera button to restore the webcam view.
+          cameraButton.click(); 
+          return;
+      }
+
+      // If we reach here, the webcam is active and ready for a snapshot.
+      console.log("Selfie button: Taking snapshot from webcam.");
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 128; // Match the resolution of uploaded selfies
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw the current video frame to the canvas
+      ctx.drawImage(localVideo, 0, 0, canvas.width, canvas.height);
+
+      const newStream = canvas.captureStream(10);
+      communications.replaceLocalVideoTrack(newStream.getVideoTracks()[0]).then(() => {
+          console.log("Selfie snapshot successfully applied.");
+      });
+      cameraButton.classList.add('active'); // Ensure the button state is correct
+  });
+
+  uploadSelfieButton.addEventListener('click', () => {
       document.getElementById('selfie-upload').click();
   });
   document.getElementById('selfie-upload').addEventListener('change', handleSelfieFile);
@@ -470,12 +509,6 @@ async function init() {
 
       camera.getWorldDirection(direction);
       position.copy(camera.position).add(direction.multiplyScalar(10));
-      const raycaster = new THREE.Raycaster(position, new THREE.Vector3(0, -1, 0));
-      raycaster.layers.set(COLLISION_LAYER);
-      const intersects = raycaster.intersectObject(scene, true);
-      if(intersects.length > 0) {
-        position.y = intersects[0].point.y;
-      }
 
       const msg = {
         type: "sign",
@@ -488,7 +521,7 @@ async function init() {
       communications.sendData(msg);
     }
   });
-  
+
   photoButton.addEventListener('click', () => {
     if (isHighQuality) {
         composer.render();
@@ -569,6 +602,7 @@ async function init() {
 
   function handleSelfieFile(event) {
       const file = event.target.files[0];
+      console.log("Handling selfie file:", file ? file.name : "No file selected");
       if (file && file.type.startsWith('image/')) {
           const reader = new FileReader();
           reader.onload = (e) => {
@@ -580,11 +614,10 @@ async function init() {
                   const ctx = canvas.getContext('2d');
                   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-                  const stream = canvas.captureStream(10); // 10 fps is enough for a static image
-                  const newVideoTrack = stream.getVideoTracks()[0];
-                  newVideoTrack.label = 'canvas'; // Identify it as a custom track
-
-                  communications.replaceLocalVideoTrack(newVideoTrack);
+                  const newStream = canvas.captureStream(10); // 10 fps is enough for a static image
+                  communications.replaceLocalVideoTrack(newStream.getVideoTracks()[0]).then(() => {
+                      console.log("Uploaded selfie image successfully applied.");
+                  });
                   cameraButton.classList.add('active');
               };
               img.src = e.target.result;
