@@ -514,10 +514,13 @@ async function init() {
     const text = prompt("Enter sign text:", "");
     if (text && text.trim() !== "") {
       const position = new THREE.Vector3();
-      const direction = new THREE.Vector3();
+      const direction = new THREE.Vector3(0, 0, -1); // Forward vector
 
-      camera.getWorldDirection(direction);
-      position.copy(camera.position).add(direction.multiplyScalar(10));
+      // Get camera's forward direction, but only on the XZ plane
+      direction.applyQuaternion(camera.quaternion);
+      direction.y = 0; // Ignore vertical component
+      position.copy(camera.position).add(direction.normalize().multiplyScalar(10));
+      position.y = camera.position.y - controls.cameraHeight; // Place at player's feet
 
       const msg = {
         type: "sign",
