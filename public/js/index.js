@@ -343,7 +343,7 @@ async function init() {
 
           // Isolate reverb loading so it doesn't block ambient audio
           try {
-            const response = await fetch('/assets/reverb_impulse.mp3');
+            const response = await fetch('https://gustavochico.com/paseito/reverb_impulse.mp3');
             const arrayBuffer = await response.arrayBuffer();
             reverbBuffer = await audioContext.decodeAudioData(arrayBuffer);
             console.log("[AUDIO] Reverb impulse response loaded successfully.");

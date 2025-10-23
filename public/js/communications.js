@@ -196,10 +196,10 @@ export class Communications {
     this.localMediaStream.addTrack(newTrack);
 
     // Update the track for all connected peers
-    for (const peerId in this.peers) {
-        const sender = this.peers[peerId].peerConnection?.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) {
-            await sender.replaceTrack(newTrack);
+    if (oldTrack) {
+        for (const peerId in this.peers) {
+            const peer = this.peers[peerId].peerConnection;
+            if (peer) peer.replaceTrack(oldTrack, newTrack, this.localMediaStream);
         }
     }
     this.callEventCallback("peerStream", { id: 'local', stream: this.localMediaStream, isLocal: true });
