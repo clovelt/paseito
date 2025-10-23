@@ -40,12 +40,19 @@ export function createPeerDOMElements(_id, ctx, reverbBuffer) {
 function setupAudioProcessing(id, stream, reverbBuffer) {
     if (!audioContext || !stream.getAudioTracks().length || (peers[id] && peers[id].sourceNode)) return;
 
-    // --- TEMPORARY FIX to restore voice ---
-    // Bypassing the PannerNode and connecting directly to the output.
-    // This will disable 3D spatial audio but should make voices audible again.
+    const pannerNode = audioContext.createPanner();
+    pannerNode.panningModel = 'HRTF';
+    pannerNode.distanceModel = 'inverse';
+    pannerNode.refDistance = 1;
+    pannerNode.maxDistance = 10000;
+    pannerNode.rolloffFactor = 2.5;
+    pannerNode.coneInnerAngle = 360;
+    pannerNode.coneOuterAngle = 0;
+    pannerNode.coneOuterGain = 0;
+
     const sourceNode = audioContext.createMediaStreamSource(stream);
-    sourceNode.connect(audioContext.destination);
-    peers[id] = { ...peers[id], sourceNode };
+    sourceNode.connect(pannerNode).connect(audioContext.destination);
+    peers[id] = { ...peers[id], sourceNode, pannerNode };
 }
 
 export function updatePeerDOMElements({ id, stream, isLocal = false }) {
@@ -88,8 +95,9 @@ export function cleanupPeerDomElements(_id) {
 
   if (peers[_id] && peers[_id].sourceNode) {
       peers[_id].sourceNode.disconnect();
-      peers[_id].pannerNode.disconnect();
-      if (peers[_id].reverbNode) peers[_id].reverbNode.disconnect();
+      if (peers[_id].pannerNode) {
+          peers[_id].pannerNode.disconnect();
+      }
   }
 }
 
@@ -202,6 +210,22 @@ export function interpolatePositions() {
 }
 
 export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
+  if (!audioContext) return;
+
+  // Update listener position to match camera
+  const listener = audioContext.listener;
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const up = camera.up;
+  listener.positionX.setTargetAtTime(camera.position.x, audioContext.currentTime, 0.1);
+  listener.positionY.setTargetAtTime(camera.position.y, audioContext.currentTime, 0.1);
+  listener.positionZ.setTargetAtTime(camera.position.z, audioContext.currentTime, 0.1);
+  listener.forwardX.setTargetAtTime(forward.x, audioContext.currentTime, 0.1);
+  listener.forwardY.setTargetAtTime(forward.y, audioContext.currentTime, 0.1);
+  listener.forwardZ.setTargetAtTime(forward.z, audioContext.currentTime, 0.1);
+  listener.upX.setTargetAtTime(up.x, audioContext.currentTime, 0.1);
+  listener.upY.setTargetAtTime(up.y, audioContext.currentTime, 0.1);
+  listener.upZ.setTargetAtTime(up.z, audioContext.currentTime, 0.1);
+
   for (let id in peers) {
     if (peers[id] && peers[id].group && peers[id].pannerNode) {
       const peerPosition = peers[id].group.position;
@@ -213,7 +237,7 @@ export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
       panner.positionZ.setTargetAtTime(peerPosition.z, audioContext.currentTime, 0.1);
 
       const isShouting = peers[id].isShouting;
-      panner.refDistance = isShouting ? 4.0 : 1.0;
+      panner.refDistance = (isShouting ? 4.0 : 1.0) * voiceDistanceMultiplier;
       panner.rolloffFactor = isShouting ? 1.5 : 2.5;
     }
   }
