@@ -1,6 +1,6 @@
 /*
  *
- * This file sets up our web app with 3D scene and communications.
+ * This file is the main controller, orchestrating the scene, peers, and UI.
  *
  */
 
@@ -9,36 +9,36 @@ import { Communications } from "./communications.js";
 import { FirstPersonControls } from "./libs/firstPersonControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { Sky } from "three/addons/objects/Sky.js"; // Use the procedural Sky object
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
-import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
+import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 
-let lerpValue = 0;
-let camera, renderer, scene, composer;
+// Import new modules
+import { initWorld, camera, renderer, composer, scene, setQuality, updateSkybox } from "./world.js";
+import {
+    peers, addPeer, removePeer, updatePeerPositions, interpolatePositions, updatePeerVolumes, setAudioContext,
+    createPeerDOMElements, updatePeerDOMElements, cleanupPeerDomElements
+} from "./peers.js";
+
+
 let controls;
-let listener;
 let communications;
 let currentMapModel = null;
 let fallbackMapUrl = '';
+let worldMapData = {};
+let gltfLoader; // Will be initialized once
+let audioContext;
+let reverbBuffer;
 
-// --- Settings controlled by admin panel ---
 let worldState = {
-    voiceDistanceMultiplier: 1.0, // Multiplier for base distance
+    voiceDistanceMultiplier: 1.0,
     playerScale: 1.0,
 };
-// ---
 
-let dirLight, sky, sun, sunSphere;
 let isHighQuality = true;
-
 const COLLISION_LAYER = 3;
-
 let frameCount = 0;
-let peers = {};
 let signs = [];
+
+// --- UI Elements ---
 const userListContainer = document.getElementById('user-list-container');
 const qualityButton = document.getElementById('quality-button');
 const runButton = document.getElementById('run-button');
@@ -54,7 +54,6 @@ const adminPanel = document.getElementById('admin-panel');
 const adminDeleteAllButton = document.getElementById('admin-delete-all');
 const adminBroadcastButton = document.getElementById('admin-broadcast-message');
 const adminTeleportButton = document.getElementById('admin-teleport-all');
-
 const adminChangeMapButton = document.getElementById('admin-change-map');
 const mapSelectorContainer = document.getElementById('map-selector-container');
 const mapSelect = document.getElementById('map-select');
@@ -63,163 +62,6 @@ const sizeSlider = document.getElementById('size-slider');
 const speedSlider = document.getElementById('speed-slider');
 const accelSlider = document.getElementById('accel-slider');
 
-// --- DOM Utility Functions (Moved from communications.js) ---
-
-function createPeerDOMElements(_id) {
-  if (document.getElementById(_id + "_video")) return; // Already exists
-
-  const videoElement = document.createElement("video");
-  videoElement.id = _id + "_video";
-  videoElement.autoplay = true;
-  videoElement.muted = true;
-  videoElement.setAttribute("playsinline", ""); // Important for iOS
-  document.body.appendChild(videoElement);
-
-  let audioEl = document.createElement("audio");
-  audioEl.setAttribute("id", _id + "_audio");
-  audioEl.controls = "controls";
-  audioEl.volume = 0;
-  document.body.appendChild(audioEl);
-
-  audioEl.addEventListener("loadeddata", () => {
-    audioEl.play().catch(e => console.warn("Audio play failed:", e));
-  });
-}
-
-function updatePeerDOMElements({ id, stream, isLocal = false }) {
-  if (!stream) return;
-  
-  const videoTrack = stream.getVideoTracks()[0];
-  const audioTrack = stream.getAudioTracks()[0];
-
-  if (videoTrack) {
-    let videoStream = new MediaStream([videoTrack]);
-    const videoElement = document.getElementById(id + "_video");
-    if (isLocal) {
-        const localVideoPreview = document.getElementById("local_video");
-        if(localVideoPreview) localVideoPreview.srcObject = videoStream;
-    }
-    if (videoElement) videoElement.srcObject = videoStream;
-  }
-  if (audioTrack) {
-    let audioStream = new MediaStream([audioTrack]);
-    let audioEl = document.getElementById(id + "_audio");
-    if (audioEl) {
-        audioEl.srcObject = audioStream;
-        if(!isLocal) {
-           audioEl.muted = false;
-        }
-    }
-  }
-}
-
-function cleanupPeerDomElements(_id) {
-  let videoEl = document.getElementById(_id + "_video");
-  if (videoEl) videoEl.remove();
-
-  let audioEl = document.getElementById(_id + "_audio");
-  if (audioEl) audioEl.remove();
-}
-
-
-// --- Main Application Logic ---
-
-function addPeer(id, peerData) {
-  const MII_HEAD_RADIUS = 0.65;
-  const MII_BODY_HEIGHT = 2;
-  const MII_BODY_WIDTH = 1;
-  const MII_LIMB_RADIUS = 0.15;
-  const MII_ARM_LENGTH = 0.9;
-  const MII_LEG_LENGTH = 2.2;
-  
-  const videoElement = document.getElementById(id + "_video");
-  if (!videoElement) {
-      console.error(`addPeer failed: video element for ${id} not found.`);
-      return;
-  }
-  const videoTexture = new THREE.VideoTexture(videoElement);
-  
-  const headMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
-  const skinMat = new THREE.MeshStandardMaterial({ color: 0xffd3a6 });
-  const shirtMat = new THREE.MeshStandardMaterial({ color: 0x4287f5 });
-  const pantsMat = new THREE.MeshStandardMaterial({ color: 0x3d3d3d });
-
-  const headGeo = new THREE.SphereGeometry(MII_HEAD_RADIUS, 32, 16);
-  const bodyGeo = new THREE.BoxGeometry(MII_BODY_WIDTH, MII_BODY_HEIGHT, MII_BODY_WIDTH * 0.7);
-  const armGeo = new THREE.CylinderGeometry(MII_LIMB_RADIUS, MII_LIMB_RADIUS, MII_ARM_LENGTH);
-  const legGeo = new THREE.CylinderGeometry(MII_LIMB_RADIUS, MII_LIMB_RADIUS, MII_LEG_LENGTH);
-  const handGeo = new THREE.SphereGeometry(MII_LIMB_RADIUS);
-  const footGeo = new THREE.SphereGeometry(MII_LIMB_RADIUS * 1.2);
-
-  const head = new THREE.Mesh(headGeo, headMat);
-  head.rotation.y = Math.PI;
-
-  const body = new THREE.Mesh(bodyGeo, shirtMat);
-  body.position.y = -(MII_HEAD_RADIUS + MII_BODY_HEIGHT / 2);
-
-  const armL = new THREE.Mesh(armGeo, skinMat);
-  armL.position.set(MII_BODY_WIDTH / 2 + MII_LIMB_RADIUS, -MII_HEAD_RADIUS, 0);
-  
-  const armR = armL.clone();
-  armR.position.x *= -1;
-
-  const handL = new THREE.Mesh(handGeo, skinMat);
-  handL.position.y = -MII_ARM_LENGTH / 2;
-  armL.add(handL);
-
-  const handR = new THREE.Mesh(handGeo, skinMat);
-  handR.position.y = -MII_ARM_LENGTH / 2;
-  armR.add(handR);
-
-  const legL = new THREE.Mesh(legGeo, pantsMat);
-  legL.position.set(MII_BODY_WIDTH / 4, -(MII_HEAD_RADIUS + MII_BODY_HEIGHT + MII_LEG_LENGTH / 2), 0);
-  
-  const legR = legL.clone();
-  legR.position.x *= -1;
-
-  const footL = new THREE.Mesh(footGeo, pantsMat);
-  footL.position.y = -MII_LEG_LENGTH / 2;
-  legL.add(footL);
-
-  const footR = new THREE.Mesh(footGeo, pantsMat);
-  footR.position.y = -MII_LEG_LENGTH / 2;
-  legR.add(footR);
-
-  const group = new THREE.Group();
-  group.add(head, body, armL, armR, legL, legR);
-  group.position.y = MII_HEAD_RADIUS + MII_BODY_HEIGHT + MII_LEG_LENGTH; // Adjust so feet are on the ground
-  // Apply current scale
-  group.scale.set(worldState.playerScale, worldState.playerScale, worldState.playerScale);
-
-  scene.add(group);
-  peers[id] = {};
-  peers[id].group = group;
-  peers[id].name = peerData.name;
-  peers[id].previousPosition = new THREE.Vector3();
-  peers[id].previousRotation = new THREE.Quaternion();
-  peers[id].desiredPosition = new THREE.Vector3();
-  peers[id].desiredRotation = new THREE.Quaternion();
-  peers[id].isShouting = peerData.isShouting || false;
-}
-
-function removePeer(id) {
-  if(peers[id] && peers[id].group) scene.remove(peers[id].group);
-  delete peers[id];
-}
-
-function updatePeerPositions(positions) {
-  lerpValue = 0;
-  for (let id in positions) {
-    // --- BUGFIX: Add a check to ensure peer and position data exist before using them ---
-    if (peers[id] && peers[id].group && positions[id] && positions[id].position && positions[id].rotation) {
-      peers[id].previousPosition.copy(peers[id].group.position);
-      peers[id].previousRotation.copy(peers[id].group.quaternion);
-      peers[id].desiredPosition.fromArray(positions[id].position);
-      peers[id].desiredRotation.fromArray(positions[id].rotation);
-      peers[id].isShouting = positions[id].isShouting;
-    }
-  }
-}
 
 function onNewSign(msg) {
   const POST_HEIGHT = 4;
@@ -315,32 +157,76 @@ function removeUserFromList(id) {
     if (userItem) { userItem.remove(); }
 }
 
+
+function placePlayerAt(positionVec3) {
+    const raycaster = new THREE.Raycaster();
+    const rayOrigin = new THREE.Vector3(positionVec3.x, 3000, positionVec3.z); // Start high up
+    raycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+    raycaster.layers.set(COLLISION_LAYER);
+
+    const intersects = raycaster.intersectObject(scene, true);
+
+    if (intersects.length > 0 && intersects[0].point.y > -500) {
+        const groundPoint = intersects[0].point;
+        camera.position.set(groundPoint.x, groundPoint.y + controls.cameraHeight, groundPoint.z);
+        console.log("Player raycast hit ground at:", groundPoint);
+    } else {
+        camera.position.copy(positionVec3);
+        console.warn("Player raycast missed. Placing player at default height.");
+    }
+    controls.camera.position.copy(camera.position); // Sync controls camera
+    controls.velocity.y = 0;
+}
+
+
 function loadMap(mapUrl, fallbackUrl) {
     if (currentMapModel) {
         scene.remove(currentMapModel);
         currentMapModel = null;
     }
-
-    const loadingManager = new THREE.LoadingManager();
-    loadingManager.onLoad = () => { console.log("Map loaded!"); };
-    loadingManager.onError = (url) => { console.error(`There was an error loading ${url}`); };
-
-    const dracoLoader = new DRACOLoader(loadingManager);
-    dracoLoader.setDecoderPath('js/libs/draco/');
-    const loader = new GLTFLoader(loadingManager);
-    loader.setDRACOLoader(dracoLoader);
+    
+    let mapData;
+    let mapName;
+    for (const name in worldMapData) {
+        if (worldMapData[name].url === mapUrl) {
+            mapData = worldMapData[name];
+            mapName = name;
+            break;
+        }
+    }
+    
+    if (mapData) {
+        controls.setMapStartPosition(mapData.startPosition);
+        updateSkybox(mapData.skyColors);
+    }
 
     const onModelLoaded = (gltf) => {
         const model = gltf.scene;
-        // Heuristic scaling based on known models
-        if (mapUrl.includes('resort')) {
-            model.scale.set(0.3, 0.3, 0.3);
-        } else if (mapUrl.includes('dust')) {
-            model.scale.set(1, 1, 1);
-        } else if (mapUrl.includes('rainbow')) {
-            model.scale.set(20, 20, 20);
-        } else {
-            model.scale.set(1, 1, 1);
+        
+        switch(mapName) {
+            case "Resort":
+                model.scale.set(0.3, 0.3, 0.3);
+                break;
+            case "De_Dust2":
+                model.scale.set(0.2, 0.2, 0.2);
+                break;
+            case "Wind Waker":
+                model.scale.set(0.1, 0.1, 0.1);
+                break;
+            case "Shinobi Earth":
+                model.scale.set(2.7, 2.7, 2.7);
+                break;
+            case "The Catacombs":
+                model.scale.set(5.7, 5.7, 5.7);
+                break;
+            case "Hyrule Field":
+                model.scale.set(0.14, 0.14, 0.14);
+                break;
+            case "Rainbow Road":
+                model.scale.set(20, 20, 20);
+                break;
+            default:
+                model.scale.set(1, 1, 1);
         }
 
         scene.add(model);
@@ -353,9 +239,15 @@ function loadMap(mapUrl, fallbackUrl) {
                 node.layers.set(COLLISION_LAYER);
             }
         });
+        
+        if (mapData) {
+            requestAnimationFrame(() => {
+                placePlayerAt(new THREE.Vector3().fromArray(mapData.startPosition));
+            });
+        }
     };
 
-    loader.load(
+    gltfLoader.load(
         mapUrl,
         onModelLoaded,
         undefined,
@@ -363,7 +255,7 @@ function loadMap(mapUrl, fallbackUrl) {
             console.error(`An error happened loading model: ${mapUrl}`, error);
             if (fallbackUrl) {
                 console.log('Attempting to load fallback model...');
-                loader.load(fallbackUrl, onModelLoaded, undefined, (fallbackError) => {
+                gltfLoader.load(fallbackUrl, onModelLoaded, undefined, (fallbackError) => {
                     console.error('The fallback model also failed to load:', fallbackError);
                 });
             }
@@ -374,7 +266,6 @@ function loadMap(mapUrl, fallbackUrl) {
 function applySettings(state) {
     if (!state) return;
     
-    // Apply all settings from the state object
     if (state.voiceDistanceMultiplier) updateSetting('voiceDistanceMultiplier', state.voiceDistanceMultiplier, true);
     if (state.playerScale) updateSetting('playerScale', state.playerScale, true);
     if (state.maxSpeed) updateSetting('maxSpeed', state.maxSpeed, true);
@@ -383,119 +274,81 @@ function applySettings(state) {
 
 
 async function init() {
-  scene = new THREE.Scene();
-  
-  const canvas = document.createElement('canvas');
-  canvas.width = 1;
-  canvas.height = 128;
-  const context = canvas.getContext('2d');
-  const gradient = context.createLinearGradient(0, 0, 0, 128);
-  gradient.addColorStop(0, '#1a94c4'); 
-  gradient.addColorStop(0.7, '#2fc1fe');
-  gradient.addColorStop(1, '#a0d8ef');
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, 1, 128);
-  const skyTexture = new THREE.CanvasTexture(canvas);
-  scene.background = skyTexture;
+  initWorld();
 
-  scene.fog = new THREE.Fog(0xa0d8ef, 1000, 2000);
-
-  let width = window.innerWidth;
-  let height = window.innerHeight;
-
-  camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
-  camera.position.set(-100, 75, 245);
-  camera.layers.enable(COLLISION_LAYER);
-  scene.add(camera);
-
-  listener = new THREE.AudioListener();
-  camera.add(listener);
-
-  renderer = new THREE.WebGLRenderer({ antialiasing: true, preserveDrawingBuffer: true });
-  renderer.setSize(width, height);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-
-  sky = new Sky();
-  sky.scale.setScalar(450000);
-
-  sun = new THREE.Vector3();
-
-  const effectController = {
-    turbidity: 1, rayleigh: 3, mieCoefficient: 0.001,
-    mieDirectionalG: 0.95, elevation: 35, azimuth: 180,
+  // Create AudioContext on first user interaction (important for browser policy)
+  const startAudio = async () => {
+      if (audioContext) return;
+      try {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          setAudioContext(audioContext); // Pass context to peers module
+          const response = await fetch('https://raw.githubusercontent.com/web-audio-components/simple-reverb/master/impulses/impulse_rev.wav');
+          const arrayBuffer = await response.arrayBuffer();
+          reverbBuffer = await audioContext.decodeAudioData(arrayBuffer);
+          console.log("Reverb impulse response loaded successfully.");
+      } catch (e) {
+          console.error("Failed to initialize audio context or load reverb:", e);
+      }
+      document.body.removeEventListener('pointerdown', startAudio);
   };
-
-  const uniforms = sky.material.uniforms;
-  uniforms['turbidity'].value = effectController.turbidity;
-  uniforms['rayleigh'].value = effectController.rayleigh;
-  uniforms['mieCoefficient'].value = effectController.mieCoefficient;
-  uniforms['mieDirectionalG'].value = effectController.mieDirectionalG;
-
-  const phi = THREE.MathUtils.degToRad(90 - effectController.elevation);
-  const theta = THREE.MathUtils.degToRad(effectController.azimuth);
-  sun.setFromSphericalCoords(1, phi, theta);
-  uniforms['sunPosition'].value.copy(sun);
-
-  const sunGeometry = new THREE.SphereGeometry(20, 32, 32);
-  const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xfffde1, fog: false });
-  sunSphere = new THREE.Mesh(sunGeometry, sunMaterial);
-  sunSphere.position.copy(sun).multiplyScalar(1800);
-  scene.add(sunSphere);
+  document.body.addEventListener('pointerdown', startAudio, { once: true });
   
-  addLights();
+  const loadingManager = new THREE.LoadingManager();
+  const dracoLoader = new DRACOLoader(loadingManager);
+  dracoLoader.setDecoderPath('js/libs/draco/');
+  
+  const ktx2Loader = new KTX2Loader(loadingManager)
+      .setTranscoderPath('js/libs/basis/')
+      .detectSupport(renderer);
 
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.15, 0.3, 0.6);
-  composer.addPass(bloomPass);
-  composer.addPass(new SMAAPass(width * renderer.getPixelRatio(), height * renderer.getPixelRatio()));
-  composer.addPass(new OutputPass());
+  gltfLoader = new GLTFLoader(loadingManager);
+  gltfLoader.setDRACOLoader(dracoLoader);
+  gltfLoader.setKTX2Loader(ktx2Loader);
 
   controls = new FirstPersonControls(scene, camera, renderer);
   
   communications = new Communications();
   await communications.initialize();
 
-  // Handle introduction event which now contains full world state
+  // --- Communication Event Listeners ---
   communications.on("introduction", ({ peers: initialPeers, state }) => {
       console.log("Received introduction:", state);
+      worldMapData = state.availableMaps; // Store map metadata
       fallbackMapUrl = state.fallbackMap;
-      loadMap(state.currentMap, fallbackMapUrl);
+      loadMap(state.currentMapUrl, fallbackMapUrl);
       applySettings(state);
 
-      // Populate admin map selector
       mapSelectorContainer.style.display = 'block';
       for (const name in state.availableMaps) {
-          const option = new Option(name, state.availableMaps[name]); // FIX: Use standard Option constructor
+          const option = new Option(name, state.availableMaps[name].url);
           mapSelect.add(option);
       }
-      mapSelect.value = state.currentMap;
+      mapSelect.value = state.currentMapUrl;
 
       for (let id in initialPeers) {
           if (id !== communications.socket.id) {
-              createPeerDOMElements(id); // FIX: Create DOM elements BEFORE adding peer
-              addPeer(id, initialPeers[id]);
+              createPeerDOMElements(id);
+              addPeer(id, initialPeers[id], state.playerScale);
               addUserToList(id, initialPeers[id].name);
           }
       }
   });
   
   communications.on("peerStream", (data) => {
+    createPeerDOMElements(data.id, audioContext, reverbBuffer);
     updatePeerDOMElements(data);
   });
 
   communications.on("peerJoined", ({id, peerData}) => { 
-      createPeerDOMElements(id); // FIX: Create DOM elements for new peers
-      addPeer(id, peerData);
+      createPeerDOMElements(id);
+      addPeer(id, peerData, worldState.playerScale);
       addUserToList(id, peerData.name); 
   });
   
   communications.on("peerLeft", (id) => { 
       removePeer(id); 
       removeUserFromList(id);
-      cleanupPeerDomElements(id); // FIX: Clean up DOM elements on disconnect
+      cleanupPeerDomElements(id);
   });
   
   communications.on("positions", updatePeerPositions);
@@ -509,7 +362,12 @@ async function init() {
   communications.socket.on("updateSetting", ({ key, value }) => updateSetting(key, value));
 
   
-  qualityButton.addEventListener('click', () => setQuality(!isHighQuality));
+  // --- UI Event Listeners ---
+  qualityButton.addEventListener('click', () => {
+      isHighQuality = !isHighQuality;
+      setQuality(isHighQuality);
+      qualityButton.classList.toggle('active', isHighQuality);
+  });
   micButton.addEventListener('click', () => {
     const isEnabled = communications.toggleMic();
     micButton.classList.toggle('active', isEnabled);
@@ -572,7 +430,7 @@ async function init() {
   });
   
   flyButton.addEventListener('click', () => {
-    controls.camera.position.set(0, 200, 0);
+    controls.camera.position.y += 20;
     controls.velocity.y = 0;
   });
 
@@ -580,6 +438,7 @@ async function init() {
     const password = prompt("Enter admin password:");
     if (password === "gazpacho") {
       adminPanel.style.display = 'flex';
+      adminTeleportButton.textContent = "Teleport All to Me";
     } else if (password) {
       alert("Incorrect password.");
     }
@@ -601,8 +460,8 @@ async function init() {
   });
   
   adminTeleportButton.addEventListener('click', () => {
-      if(confirm("Are you sure you want to teleport all users to the center?")) {
-          communications.socket.emit("admin:teleportAll");
+      if(confirm("Are you sure you want to teleport all users to your current location?")) {
+          communications.socket.emit("admin:teleportAllToMe");
           adminPanel.style.display = 'none';
       }
   });
@@ -631,7 +490,9 @@ async function init() {
     if (document.pointerLockElement !== renderer.domElement) return;
     switch(event.key.toLowerCase()) {
         case 'q':
-            setQuality(!isHighQuality);
+            isHighQuality = !isHighQuality;
+            setQuality(isHighQuality);
+            qualityButton.classList.toggle('active', isHighQuality);
             break;
         case 'm':
             micButton.click();
@@ -653,10 +514,6 @@ async function init() {
 
   const observer = new ResizeObserver(updateVideoPosition);
   observer.observe(userList);
-
-  document.getElementById("canvas-container").append(renderer.domElement);
-  window.addEventListener("resize", onWindowResize, false);
-  scene.add(new THREE.AxesHelper(10));
   
   setQuality(isHighQuality);
   updateVideoPosition();
@@ -683,6 +540,7 @@ function updateSetting(key, value, isInitial = false) {
                     peers[id].group.scale.set(numericValue, numericValue, numericValue);
                 }
             }
+            controls.setCameraHeight(5.0 * numericValue);
             if (!isInitial) sizeSlider.value = numericValue;
             document.getElementById('size-value').textContent = numericValue;
             break;
@@ -697,80 +555,6 @@ function updateSetting(key, value, isInitial = false) {
             document.getElementById('accel-value').textContent = numericValue;
             break;
     }
-}
-
-function setQuality(high) {
-  isHighQuality = high;
-  qualityButton.classList.toggle('active', isHighQuality);
-
-  renderer.shadowMap.enabled = isHighQuality;
-  if (dirLight) {
-    dirLight.castShadow = isHighQuality;
-    dirLight.visible = isHighQuality;
-  }
-  
-  const pixelRatio = isHighQuality ? window.devicePixelRatio : window.devicePixelRatio * 0.75;
-  renderer.setPixelRatio(pixelRatio);
-
-  if (isHighQuality) {
-      scene.fog.near = 800;
-      scene.fog.far = 2200;
-  } else {
-      scene.fog.near = 100;
-      scene.fog.far = 1500;
-  }
-  
-  onWindowResize();
-}
-
-function addLights() {
-  const hemisphereLight = new THREE.HemisphereLight(0xadd8e6, 0xfcebb4, 1.2);
-  scene.add(hemisphereLight);
-  
-  dirLight = new THREE.DirectionalLight(0xfff5e1, 3);
-  dirLight.position.copy(sun).multiplyScalar(200);
-  dirLight.castShadow = isHighQuality;
-  dirLight.shadow.bias = -0.0002;
-  dirLight.shadow.mapSize.width = 4096;
-  dirLight.shadow.mapSize.height = 4096;
-  dirLight.shadow.camera.near = 0.5;
-  dirLight.shadow.camera.far = 2000;
-  dirLight.shadow.camera.left = -1000;
-  dirLight.shadow.camera.right = 1000;
-  dirLight.shadow.camera.top = 1000;
-  dirLight.shadow.camera.bottom = -1000;
-  scene.add(dirLight);
-}
-
-function interpolatePositions() {
-  lerpValue = Math.min(lerpValue + 0.1, 1.0);
-  for (let id in peers) {
-    if (peers[id] && peers[id].group) {
-      peers[id].group.position.lerpVectors(peers[id].previousPosition, peers[id].desiredPosition, lerpValue);
-      peers[id].group.quaternion.slerpQuaternions(peers[id].previousRotation, peers[id].desiredRotation, lerpValue);
-    }
-  }
-}
-
-function updatePeerVolumes() {
-  for (let id in peers) {
-    let audioEl = document.getElementById(id + "_audio");
-    if (audioEl && peers[id] && peers[id].group) {
-      let distSquared = camera.position.distanceToSquared(peers[id].group.position);
-      
-      // --- SOLUTION: Use shouting state to determine audio distance ---
-      const isShouting = peers[id].isShouting;
-      // Normal hearing distance is ~33 units. Shouting is ~67 units.
-      const distMult = (isShouting ? 9.0 : 2.25) * worldState.voiceDistanceMultiplier;
-      let maxDistSquared = 500 * distMult;
-
-      if (distSquared > maxDistSquared) {
-        audioEl.volume = 0;
-      } else {
-        audioEl.volume = Math.min(1, (10 * distMult) / distSquared);
-      }
-    }
-  }
 }
 
 
@@ -793,9 +577,18 @@ function update() {
 
   if (controls) {
     runButton.classList.toggle('active', controls.isRunning);
+    // Apply different acceleration and speed when running
+    const currentSettings = {
+        maxSpeed: parseFloat(document.getElementById('speed-slider').value),
+        acceleration: controls.baseAcceleration || parseFloat(document.getElementById('accel-slider').value)
+    };
+    if (controls.isRunning) {
+        currentSettings.acceleration *= 3; // Triple acceleration when running
+    }
+    controls.updateMovementSettings(currentSettings);
   }
 
-  if (frameCount % 25 === 0) updatePeerVolumes();
+  if (frameCount % 25 === 0) updatePeerVolumes(worldState.voiceDistanceMultiplier, reverbBuffer);
   if (frameCount % 10 === 0 && communications.socket) {
     communications.sendPosition(getPlayerData());
   }
@@ -809,14 +602,5 @@ function update() {
   }
 }
 
-function onWindowResize() {
-  let width = window.innerWidth;
-  let height = window.innerHeight;
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-  composer.setSize(width, height);
-}
-
-// Start of the script
+// Start the application
 init();

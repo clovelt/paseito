@@ -11,6 +11,7 @@ export class FirstPersonControls {
         this.paused = false
         this.cameraHeight = 5.0
         this.raycaster = new THREE.Raycaster()
+        this.mapStartPosition = new THREE.Vector3(0, 300, 0); // Default start position
         
         this.walkSpeed = 250; // Will be derived from maxSpeed
         this.runSpeed = 500; // Will be set by maxSpeed
@@ -57,11 +58,19 @@ export class FirstPersonControls {
         this.isRunning = !this.isRunning;
     }
 
+    setCameraHeight(height) {
+        this.cameraHeight = height;
+    }
+
+    setMapStartPosition(positionArray) {
+        this.mapStartPosition.fromArray(positionArray);
+    }
+
     updateMovementSettings(settings) {
         if (settings.maxSpeed) {
             this.runSpeed = parseFloat(settings.maxSpeed);
             this.walkSpeed = this.runSpeed / 2;
-            this.superSprintSpeed = this.runSpeed * 2;
+            this.superSprintSpeed = this.runSpeed * 2.5;
         }
         if (settings.acceleration) this.acceleration = parseFloat(settings.acceleration);
     }
@@ -299,7 +308,19 @@ export class FirstPersonControls {
         this.camera.position.y += this.velocity.y * delta;
 
         if (this.camera.position.y < -100) {
-            this.camera.position.set(-100, 75, 245);
+            // Respawn logic with raycasting
+            const rayOrigin = new THREE.Vector3(this.mapStartPosition.x, 300, this.mapStartPosition.z);
+            this.raycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+            this.raycaster.layers.set(3); // Collision layer
+
+            const intersections = this.raycaster.intersectObjects(this.getCollidables(), true);
+
+            if (intersections.length > 0) {
+                const groundPoint = intersections[0].point;
+                this.camera.position.set(groundPoint.x, groundPoint.y + this.cameraHeight, groundPoint.z);
+            } else {
+                this.camera.position.copy(this.mapStartPosition);
+            }
             this.velocity.y = 0;
         }
 

@@ -58,20 +58,51 @@ const io = require("socket.io")().listen(server);
 let peers = {};
 
 const availableMaps = {
-    "Resort": "https://gustavochico.com/paseito/resort.glb",
-    "De_Dust2": "https://gustavochico.com/paseito/dedust2.glb",
-    "Rainbow Road": "https://gustavochico.com/paseito/rainbowRoad.glb",
+    "Resort": {
+        url: "https://gustavochico.com/paseito/resort.glb",
+        startPosition: [-100, 75, 295],
+        skyColors: ['#1a94c4', '#2fc1fe', '#212324ff']
+    },
+    "Wind Waker": {
+        url: "https://gustavochico.com/paseito/windWaker.glb",
+        startPosition: [0, 0, 0],
+        skyColors: ['#1a94c4', '#2fc1fe', '#a0d8ef']
+    },
+    "Dust2": {
+        url: "https://gustavochico.com/paseito/dedust2.glb",
+        startPosition: [80, 850, 0],
+        skyColors: ['#5c6e80', '#829ab1', '#d9e2ec']
+    },
+    "Rainbow Road": {
+        url: "https://gustavochico.com/paseito/rainbowRoad.glb",
+        startPosition: [1210, 615, 580],
+        skyColors: ['#000000ff', '#173b5cff', '#000000ff']
+    },
+    "Shinobi Earth": {
+        url: "https://gustavochico.com/paseito/shinobi.glb",
+        startPosition: [0, 0, 0],
+        skyColors: ['#1a94c4', '#2fc1fe', '#212324ff']
+    },
+    "The Catacombs": {
+        url: "https://gustavochico.com/paseito/catacombs.glb",
+        startPosition: [10, 0, 100],
+        skyColors: ['#2b2e2fff', '#212324ff', '#131414ff']
+    },
+    "Anor Londo PELIGRO NO ES BROMA": {
+        url: "https://gustavochico.com/paseito/anorLondo.glb",
+        startPosition: [0, 0, 0],
+        skyColors: ['#1a94c4', '#2fc1fe', '#212324ff']
+    }
 };
 const fallbackMap = 'https://gustavochico.com/paseito/resort.glb';
 
 let serverState = {
-    currentMap: availableMaps["Resort"],
+    currentMapUrl: availableMaps["Resort"].url, // Store URL for simplicity
     availableMaps: availableMaps,
     fallbackMap: fallbackMap,
-    voiceDistanceMultiplier: 2.25,
-    shoutDistanceMultiplier: 9.0,
+    voiceDistanceMultiplier: 1.0,
     playerScale: 1.0,
-    maxSpeed: 500, // This will represent runSpeed
+    maxSpeed: 2000,
     acceleration: 600
 };
 
@@ -110,6 +141,7 @@ function setupSocketServer() {
     socket.broadcast.emit("peerConnection", socket.id, peers[socket.id]);
 
     socket.on("move", (data) => {
+      // Add validation to prevent server state corruption
       if (peers[socket.id] && data && Array.isArray(data.position) && Array.isArray(data.rotation)) {
         peers[socket.id].position = data.position;
         peers[socket.id].rotation = data.rotation;
@@ -137,9 +169,10 @@ function setupSocketServer() {
     });
 
     socket.on("admin:changeMap", (mapUrl) => {
-        if (Object.values(availableMaps).includes(mapUrl)) {
+        const isValidMap = Object.values(availableMaps).some(map => map.url === mapUrl);
+        if (isValidMap) {
             console.log(`Admin command: changeMap to ${mapUrl} from ${socket.id}`);
-            serverState.currentMap = mapUrl;
+            serverState.currentMapUrl = mapUrl;
             io.sockets.emit("changeMap", mapUrl);
         }
     });
@@ -152,16 +185,20 @@ function setupSocketServer() {
         }
     });
 
-    // Add handlers for new admin commands
     socket.on("admin:broadcastMessage", (message) => {
         console.log(`Admin command: broadcast "${message}" from ${socket.id}`);
         io.sockets.emit("serverMessage", `ADMIN: ${message}`);
     });
 
-    socket.on("admin:teleportAll", () => {
-        console.log(`Admin command: teleportAll from ${socket.id}`);
-        for (const id in peers) {
-            peers[id].position = [0, 20, 0]; // Teleport to center
+    socket.on("admin:teleportAllToMe", () => {
+        console.log(`Admin command: teleportAllToMe from ${socket.id}`);
+        if (peers[socket.id]) {
+            const adminPosition = peers[socket.id].position;
+            for (const id in peers) {
+                if (id !== socket.id) { // Don't teleport the admin
+                    peers[id].position = adminPosition.slice(); // Use slice to create a copy
+                }
+            }
         }
     });
 
