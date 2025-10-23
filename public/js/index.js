@@ -516,7 +516,7 @@ async function init() {
       const position = new THREE.Vector3();
       const direction = new THREE.Vector3(0, 0, -1); // Forward vector
 
-      // Get camera's forward direction, but only on the XZ plane
+      // Get camera's forward direction, but only on the XZ
       direction.applyQuaternion(camera.quaternion);
       direction.y = 0; // Ignore vertical component
       position.copy(camera.position).add(direction.normalize().multiplyScalar(10));

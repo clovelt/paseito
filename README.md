@@ -1,10 +1,10 @@
-paseito. 
+paseito.
 
 Simulador de tours turísiticos digitales. Roquekes x Clovelt 2025.
 
 Digital tour simulator. Roquekes x Clovelt 2025.
 
-Powered by [three.js](threejs.org), allows multiplaye scenes with integrated audio/video capabilities.  It uses a node server running socket.io to provide multiplayer functionality as well as WebRTC signaling.
+Powered by [three.js](threejs.org), allows multiplayer scenes with integrated audio/video capabilities. It uses a node server running socket.io to provide multiplayer functionality as well as WebRTC signaling.
 
 ![image of multiplayer 3D scene](/docs/images/paseito.gif)
 
