@@ -413,18 +413,21 @@ async function init() {
       for (let id in initialPeers) {
           if (id !== communications.socket.id) {
               createPeerDOMElements(id);
-              addPeer(id, initialPeers[id], state.playerScale);
+              addPeer(id, initialPeers[id], worldState.playerScale);
               addUserToList(id, initialPeers[id].name);
           }
       }
   });
   
   communications.on("peerStream", (data) => {
+    // When a stream arrives, ensure the peer object exists before processing.
+    if (!peers[data.id]) {
+      peers[data.id] = {}; // Create a placeholder object if it doesn't exist.
+    }
     updatePeerDOMElements(data);
   });
 
   communications.on("peerJoined", ({id, peerData}) => { 
-      createPeerDOMElements(id);
       addPeer(id, peerData, worldState.playerScale);
       addUserToList(id, peerData.name); 
   });

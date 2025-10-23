@@ -33,8 +33,11 @@ function setupAudioProcessing(id, stream, reverbBuffer) {
     // Revert to GainNode for simple volume control
     const gainNode = audioContext.createGain();
     const sourceNode = audioContext.createMediaStreamSource(stream);
+    
+    // Ensure the peer object exists before trying to attach nodes
+    peers[id] = peers[id] || {};
     sourceNode.connect(gainNode).connect(audioContext.destination);
-    peers[id] = { ...peers[id], sourceNode, gainNode };
+    Object.assign(peers[id], { sourceNode, gainNode });
 }
 
 export function updatePeerDOMElements({ id, stream, isLocal = false }) {
@@ -60,9 +63,11 @@ export function updatePeerDOMElements({ id, stream, isLocal = false }) {
   }
   if (audioTrack) {
     const audioStream = new MediaStream([audioTrack]);
-    if (peers[id]) {
-        peers[id].stream = audioStream;
+    // Ensure the peer object exists before assigning the stream
+    if (!peers[id]) {
+        peers[id] = {};
     }
+    peers[id].stream = audioStream;
     // If the audio context is ready, process the stream. Otherwise, it will be processed when the context is created.
     if (audioContext && !isLocal) setupAudioProcessing(id, audioStream);
   }
@@ -87,6 +92,9 @@ export function cleanupPeerDomElements(_id) {
 // --- Main Peer Logic ---
 
 export function addPeer(id, peerData, playerScale) {
+  // Create the DOM element first, as it's needed for the video texture.
+  createPeerDOMElements(id);
+
   const MII_HEAD_RADIUS = 0.65;
   const MII_BODY_HEIGHT = 2;
   const MII_BODY_WIDTH = 1;
@@ -153,7 +161,7 @@ export function addPeer(id, peerData, playerScale) {
   group.scale.set(playerScale, playerScale, playerScale);
 
   scene.add(group);
-  peers[id] = {};
+  peers[id] = peers[id] || {}; // Safely initialize the peer object, preserving any existing data (like a stream)
   peers[id].group = group;
   peers[id].name = peerData.name;
   peers[id].previousPosition = new THREE.Vector3();
