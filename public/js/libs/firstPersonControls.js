@@ -158,7 +158,7 @@ export class FirstPersonControls {
             e.preventDefault();
             if (this.isUserInteracting && e.touches.length === 1) {
                 this.lon = (this.onPointerDownPointerX - e.touches[0].clientX) * 0.3 + this.onPointerDownLon;
-                this.lat = (e.touches[0].clientY - this.onPointerDownPointerY) * 0.3 + this.onPointerDownLat;
+                this.lat = (this.onPointerDownPointerY - e.touches[0].clientY) * 0.3 + this.onPointerDownLat;
                 this.computeCameraOrientation();
             }
         }, { passive: false });

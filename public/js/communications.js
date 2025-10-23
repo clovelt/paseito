@@ -185,6 +185,26 @@ export class Communications {
     return false;
   }
 
+  async replaceLocalVideoTrack(newTrack) {
+    if (!this.localMediaStream) return;
+
+    const oldTrack = this.localMediaStream.getVideoTracks()[0];
+    if (oldTrack) {
+        oldTrack.stop(); // Stop the old track (camera or canvas)
+        this.localMediaStream.removeTrack(oldTrack);
+    }
+    this.localMediaStream.addTrack(newTrack);
+
+    // Update the track for all connected peers
+    for (const peerId in this.peers) {
+        const sender = this.peers[peerId].peerConnection?.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) {
+            await sender.replaceTrack(newTrack);
+        }
+    }
+    this.callEventCallback("peerStream", { id: 'local', stream: this.localMediaStream, isLocal: true });
+  }
+
   disableOutgoingStream() {
     this.localMediaStream.getTracks().forEach((track) => {
       track.enabled = false;

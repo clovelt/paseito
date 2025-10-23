@@ -29,6 +29,7 @@ let gltfLoader; // Will be initialized once
 let audioContext;
 let reverbBuffer;
 let ambientAudio;
+let isAudioUnlocked = false;
 
 let worldState = {
     voiceDistanceMultiplier: 1.0,
@@ -47,6 +48,7 @@ const qualityButton = document.getElementById('quality-button');
 const runButton = document.getElementById('run-button');
 const micButton = document.getElementById('mic-button');
 const cameraButton = document.getElementById('camera-button');
+const selfieButton = document.getElementById('selfie-button');
 const addSignButton = document.getElementById('add-sign-button');
 const photoButton = document.getElementById('photo-button');
 const settingsButton = document.getElementById('settings-button');
@@ -182,21 +184,23 @@ function placePlayerAt(positionVec3) {
 }
 
 function playAmbientTrack() {
-    if (!ambientAudio || !currentMapModel) return; // Don't play if audio isn't ready or map isn't loaded
-
-    let mapData = null;
-    // Find map data using the reliable currentMapUrl
-    const mapEntry = Object.values(worldMapData).find(m => m.url === currentMapUrl);
-    if (mapEntry) {
-        mapData = mapEntry;
+    console.log(`[AUDIO] Attempting to play ambient track. Audio Unlocked: ${isAudioUnlocked}, Current Map URL: ${currentMapUrl}`);
+    if (!isAudioUnlocked || !currentMapUrl || !Object.keys(worldMapData).length) {
+        console.log("[AUDIO] Conditions not met. Aborting playback for now.");
+        return;
     }
 
-    const trackUrl = mapData?.ambientTrack || worldState.fallbackAmbientTrack;
-    const absoluteUrl = new URL(trackUrl, window.location.href).href;
-    if (trackUrl && ambientAudio.src !== absoluteUrl) {
-        console.log(`Loading ambient track: ${trackUrl}`);
+    const mapEntry = Object.values(worldMapData).find(m => m.url === currentMapUrl);
+    const trackUrl = mapEntry?.ambientTrack || worldState.fallbackAmbientTrack;
+    
+    if (trackUrl) {
+        const absoluteUrl = new URL(trackUrl, window.location.href).href;
+        if (ambientAudio.src === absoluteUrl && !ambientAudio.paused) {
+            console.log("[AUDIO] Track is already playing.");
+            return; 
+        }
+        console.log(`[AUDIO] Setting audio source to: ${trackUrl}`);
         ambientAudio.src = trackUrl;
-        ambientAudio.play().catch(e => console.warn("Ambient audio could not be played:", e));
     }
 }
 
@@ -269,6 +273,7 @@ function loadMap(mapUrl, fallbackUrl) {
             });
         }
 
+        // This is a reliable place to trigger the audio logic.
         playAmbientTrack(); // Attempt to play audio now that model is loaded
     };
 
@@ -288,6 +293,20 @@ function loadMap(mapUrl, fallbackUrl) {
     );
 }
 
+function applyQualitySettings(isHigh) {
+    setQuality(isHigh); // This handles post-processing
+
+    if (isHigh) {
+        camera.far = 10000;
+        renderer.setPixelRatio(window.devicePixelRatio);
+    } else {
+        camera.far = 1500; // Reduce render distance
+        renderer.setPixelRatio(window.devicePixelRatio * 0.75); // Render at lower resolution
+    }
+    camera.updateProjectionMatrix();
+    qualityButton.classList.toggle('active', isHigh);
+}
+
 function applySettings(state) {
     if (!state) return;
     
@@ -305,23 +324,37 @@ async function init() {
   // Create AudioContext on first user interaction (important for browser policy)
   const startAudio = async () => {
       if (audioContext) return;
+      document.body.removeEventListener('pointerdown', startAudio);
+
       try {
+          console.log("[AUDIO] User interaction detected. Initializing AudioContext.");
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           setAudioContext(audioContext); // Pass context to peers module
-          const response = await fetch('assets/reverb_impulse.mp3');
+
+          const response = await fetch('/assets/reverb_impulse.mp3');
           const arrayBuffer = await response.arrayBuffer();
           reverbBuffer = await audioContext.decodeAudioData(arrayBuffer);
           console.log("Reverb impulse response loaded successfully.");
-
+          
           ambientAudio = new Audio();
           ambientAudio.loop = true;
           ambientAudio.volume = 0.25;
           document.body.appendChild(ambientAudio);
-          playAmbientTrack(); // Now that audio is ready, try playing the track
+          console.log("[AUDIO] Ambient audio element created.");
+
+          ambientAudio.addEventListener('loadeddata', () => {
+            console.log("[AUDIO] 'loadeddata' event fired. Attempting to play.");
+            ambientAudio.play().catch(e => console.error("[AUDIO] Playback failed in 'loadeddata' listener:", e));
+          });
+
+          isAudioUnlocked = true;
+          console.log("[AUDIO] Audio is now unlocked.");
+
+          // Now that audio is unlocked, try to play the track immediately.
+          playAmbientTrack();
       } catch (e) {
-          console.error("Failed to initialize audio context or load reverb:", e);
+          console.error("[AUDIO] CRITICAL: Failed to initialize audio context or load reverb:", e);
       }
-      document.body.removeEventListener('pointerdown', startAudio);
   };
   document.body.addEventListener('pointerdown', startAudio, { once: true });
   
@@ -345,7 +378,7 @@ async function init() {
   // --- Communication Event Listeners ---
   communications.on("introduction", ({ peers: initialPeers, state }) => {
       console.log("Received introduction:", state);
-      worldMapData = state.availableMaps; // Store map metadata
+      worldMapData = state.availableMaps;
       fallbackMapUrl = state.fallbackMap;
       currentMapUrl = state.currentMapUrl;
       worldState.fallbackAmbientTrack = state.fallbackAmbientTrack;
@@ -399,21 +432,35 @@ async function init() {
   // --- UI Event Listeners ---
   qualityButton.addEventListener('click', () => {
       isHighQuality = !isHighQuality;
-      setQuality(isHighQuality);
-      qualityButton.classList.toggle('active', isHighQuality);
+      applyQualitySettings(isHighQuality);
   });
   micButton.addEventListener('click', () => {
-    const isEnabled = communications.toggleMic();
-    micButton.classList.toggle('active', isEnabled);
-    micButton.innerHTML = isEnabled ? '<i class="fa-solid fa-microphone"></i>' : '<i class="fa-solid fa-microphone-slash"></i>';
+      const isEnabled = communications.toggleMic();
+      micButton.classList.toggle('active', isEnabled);
+      micButton.innerHTML = isEnabled ? '<i class="fa-solid fa-microphone"></i>' : '<i class="fa-solid fa-microphone-slash"></i>';
   });
   cameraButton.addEventListener('click', () => {
-    const isEnabled = communications.toggleCamera();
-    cameraButton.classList.toggle('active', isEnabled);
+      const videoTrack = communications.localMediaStream?.getVideoTracks()[0];
+      // If the track is from a canvas (selfie image), re-acquire the camera.
+      if (videoTrack && videoTrack.label === 'canvas') {
+          communications.getLocalMedia().then(newStream => {
+              const newVideoTrack = newStream.getVideoTracks()[0];
+              communications.replaceLocalVideoTrack(newVideoTrack);
+              cameraButton.classList.add('active');
+          });
+      } else {
+          const isEnabled = communications.toggleCamera();
+          cameraButton.classList.toggle('active', isEnabled);
+      }
   });
   runButton.addEventListener('click', () => {
     controls.toggleRun();
   });
+
+  selfieButton.addEventListener('click', () => {
+      document.getElementById('selfie-upload').click();
+  });
+  document.getElementById('selfie-upload').addEventListener('change', handleSelfieFile);
 
   addSignButton.addEventListener('click', () => {
     const text = prompt("Enter sign text:", "");
@@ -520,13 +567,40 @@ async function init() {
   setupSlider(speedSlider, 'maxSpeed', document.getElementById('speed-value'));
   setupSlider(accelSlider, 'acceleration', document.getElementById('accel-value'));
 
+  function handleSelfieFile(event) {
+      const file = event.target.files[0];
+      if (file && file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+              const img = new Image();
+              img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = 128; // Keep it small for performance
+                  canvas.height = 128;
+                  const ctx = canvas.getContext('2d');
+                  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                  const stream = canvas.captureStream(10); // 10 fps is enough for a static image
+                  const newVideoTrack = stream.getVideoTracks()[0];
+                  newVideoTrack.label = 'canvas'; // Identify it as a custom track
+
+                  communications.replaceLocalVideoTrack(newVideoTrack);
+                  cameraButton.classList.add('active');
+              };
+              img.src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+      }
+      // Reset file input to allow re-uploading the same file
+      event.target.value = '';
+  }
+
   window.addEventListener('keydown', (event) => {
     if (document.pointerLockElement !== renderer.domElement) return;
     switch(event.key.toLowerCase()) {
         case 'q':
             isHighQuality = !isHighQuality;
-            setQuality(isHighQuality);
-            qualityButton.classList.toggle('active', isHighQuality);
+            applyQualitySettings(isHighQuality);
             break;
         case 'm':
             micButton.click();
@@ -535,6 +609,22 @@ async function init() {
             cameraButton.click();
             break;
     }
+  });
+
+  // --- Drag and Drop for Selfie Image ---
+  const body = document.body;
+  const dragOverlay = document.getElementById('drag-overlay');
+  body.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      dragOverlay.style.display = 'flex';
+  });
+  body.addEventListener('dragleave', () => {
+      dragOverlay.style.display = 'none';
+  });
+  body.addEventListener('drop', (event) => {
+      event.preventDefault();
+      dragOverlay.style.display = 'none';      
+      handleSelfieFile({ target: event.dataTransfer });
   });
 
   const userList = document.getElementById('user-list-container');
@@ -549,7 +639,7 @@ async function init() {
   const observer = new ResizeObserver(updateVideoPosition);
   observer.observe(userList);
   
-  setQuality(isHighQuality);
+  applyQualitySettings(isHighQuality);
   updateVideoPosition();
 
   if ('ontouchstart' in window) {
@@ -579,12 +669,18 @@ function updateSetting(key, value, isInitial = false) {
             document.getElementById('size-value').textContent = numericValue;
             break;
         case 'maxSpeed':
-            controls.updateMovementSettings({ maxSpeed: numericValue });
+            // We'll let the update loop handle this based on running state
             if (!isInitial) speedSlider.value = numericValue;
             document.getElementById('speed-value').textContent = numericValue;
             break;
         case 'acceleration':
-            controls.updateMovementSettings({ acceleration: numericValue });
+            // Store the base acceleration, the update loop will apply it.
+            if (controls) {
+                controls.baseAcceleration = numericValue;
+            } else {
+                // controls might not be initialized yet
+                setTimeout(() => updateSetting(key, value, isInitial), 100);
+            }
             if (!isInitial) accelSlider.value = numericValue;
             document.getElementById('accel-value').textContent = numericValue;
             break;
@@ -614,7 +710,7 @@ function update() {
     // Apply different acceleration and speed when running
     const currentSettings = {
         maxSpeed: parseFloat(document.getElementById('speed-slider').value),
-        acceleration: controls.baseAcceleration || parseFloat(document.getElementById('accel-slider').value)
+        acceleration: controls.baseAcceleration || parseFloat(document.getElementById('accel-slider').value) // Restore baseAcceleration
     };
     if (controls.isRunning) {
         currentSettings.acceleration *= 3; // Triple acceleration when running

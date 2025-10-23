@@ -57,7 +57,13 @@ export function updatePeerDOMElements({ id, stream, isLocal = false }) {
     let videoStream = new MediaStream([videoTrack]);
     const videoElement = document.getElementById(id + "_video");
     if (isLocal) {
-        const localVideoPreview = document.getElementById("local_video");
+        // The local preview element is now inside the HTML
+        const localVideoPreview = document.getElementById('local_video');
+        // If the new track is from a canvas, we need to manually update the preview
+        // because the original stream from getUserMedia is disconnected.
+        if (videoTrack.label === 'canvas') {
+            localVideoPreview.srcObject = videoStream;
+        }
         if(localVideoPreview) localVideoPreview.srcObject = videoStream;
     }
     if (videoElement) videoElement.srcObject = videoStream;
@@ -200,13 +206,13 @@ export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
       
       const isShouting = peers[id].isShouting;
       const distMult = (isShouting ? 9.0 : 2.25) * voiceDistanceMultiplier;
-      let maxDistSquared = 3600 * distMult; // Increased from 1800
+      let maxDistSquared = 4500 * distMult;
       let volume = 0;
 
       if (distSquared > maxDistSquared) {
         volume = 0;
       } else {
-        volume = Math.min(1, (10 * distMult) / distSquared);
+        volume = Math.min(1, (80 * distMult) / distSquared);
       }
       
       peers[id].gainNode.gain.setTargetAtTime(volume, audioContext.currentTime, 0.1);
