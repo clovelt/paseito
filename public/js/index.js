@@ -23,14 +23,17 @@ let controls;
 let communications;
 let currentMapModel = null;
 let fallbackMapUrl = '';
+let currentMapUrl = '';
 let worldMapData = {};
 let gltfLoader; // Will be initialized once
 let audioContext;
 let reverbBuffer;
+let ambientAudio;
 
 let worldState = {
     voiceDistanceMultiplier: 1.0,
     playerScale: 1.0,
+    fallbackAmbientTrack: ''
 };
 
 let isHighQuality = true;
@@ -178,30 +181,50 @@ function placePlayerAt(positionVec3) {
     controls.velocity.y = 0;
 }
 
+function playAmbientTrack() {
+    if (!ambientAudio || !currentMapModel) return; // Don't play if audio isn't ready or map isn't loaded
+
+    let mapData = null;
+    // Find map data using the reliable currentMapUrl
+    const mapEntry = Object.values(worldMapData).find(m => m.url === currentMapUrl);
+    if (mapEntry) {
+        mapData = mapEntry;
+    }
+
+    const trackUrl = mapData?.ambientTrack || worldState.fallbackAmbientTrack;
+    const absoluteUrl = new URL(trackUrl, window.location.href).href;
+    if (trackUrl && ambientAudio.src !== absoluteUrl) {
+        console.log(`Loading ambient track: ${trackUrl}`);
+        ambientAudio.src = trackUrl;
+        ambientAudio.play().catch(e => console.warn("Ambient audio could not be played:", e));
+    }
+}
 
 function loadMap(mapUrl, fallbackUrl) {
     if (currentMapModel) {
         scene.remove(currentMapModel);
         currentMapModel = null;
     }
-    
-    let mapData;
-    let mapName;
-    for (const name in worldMapData) {
-        if (worldMapData[name].url === mapUrl) {
-            mapData = worldMapData[name];
-            mapName = name;
-            break;
-        }
-    }
-    
-    if (mapData) {
-        controls.setMapStartPosition(mapData.startPosition);
-        updateSkybox(mapData.skyColors);
-    }
+    currentMapUrl = mapUrl; // Store the current map URL reliably
 
     const onModelLoaded = (gltf) => {
         const model = gltf.scene;
+        // No need for userData.url, we will use currentMapUrl
+
+        let mapData;
+        let mapName;
+        for (const name in worldMapData) {
+            if (worldMapData[name].url === mapUrl) {
+                mapData = worldMapData[name];
+                mapName = name;
+                break;
+            }
+        }
+
+        if (mapData) {
+            controls.setMapStartPosition(mapData.startPosition);
+            updateSkybox(mapData.skyColors);
+        }
         
         switch(mapName) {
             case "Resort":
@@ -245,6 +268,8 @@ function loadMap(mapUrl, fallbackUrl) {
                 placePlayerAt(new THREE.Vector3().fromArray(mapData.startPosition));
             });
         }
+
+        playAmbientTrack(); // Attempt to play audio now that model is loaded
     };
 
     gltfLoader.load(
@@ -275,6 +300,7 @@ function applySettings(state) {
 
 async function init() {
   initWorld();
+  
 
   // Create AudioContext on first user interaction (important for browser policy)
   const startAudio = async () => {
@@ -282,10 +308,16 @@ async function init() {
       try {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           setAudioContext(audioContext); // Pass context to peers module
-          const response = await fetch('https://raw.githubusercontent.com/web-audio-components/simple-reverb/master/impulses/impulse_rev.wav');
+          const response = await fetch('assets/reverb_impulse.mp3');
           const arrayBuffer = await response.arrayBuffer();
           reverbBuffer = await audioContext.decodeAudioData(arrayBuffer);
           console.log("Reverb impulse response loaded successfully.");
+
+          ambientAudio = new Audio();
+          ambientAudio.loop = true;
+          ambientAudio.volume = 0.25;
+          document.body.appendChild(ambientAudio);
+          playAmbientTrack(); // Now that audio is ready, try playing the track
       } catch (e) {
           console.error("Failed to initialize audio context or load reverb:", e);
       }
@@ -315,6 +347,8 @@ async function init() {
       console.log("Received introduction:", state);
       worldMapData = state.availableMaps; // Store map metadata
       fallbackMapUrl = state.fallbackMap;
+      currentMapUrl = state.currentMapUrl;
+      worldState.fallbackAmbientTrack = state.fallbackAmbientTrack;
       loadMap(state.currentMapUrl, fallbackMapUrl);
       applySettings(state);
 
@@ -540,7 +574,7 @@ function updateSetting(key, value, isInitial = false) {
                     peers[id].group.scale.set(numericValue, numericValue, numericValue);
                 }
             }
-            controls.setCameraHeight(5.0 * numericValue);
+            controls.setCameraHeight(6.0 * numericValue);
             if (!isInitial) sizeSlider.value = numericValue;
             document.getElementById('size-value').textContent = numericValue;
             break;
@@ -567,7 +601,7 @@ function getPlayerData() {
       camera.quaternion._z,
       camera.quaternion._w,
     ],
-    isShouting: controls.isRunning,
+    isShouting: communications.micVolume > 20, // Threshold for shouting
   };
 }
 

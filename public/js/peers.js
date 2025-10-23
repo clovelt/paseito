@@ -200,7 +200,7 @@ export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
       
       const isShouting = peers[id].isShouting;
       const distMult = (isShouting ? 9.0 : 2.25) * voiceDistanceMultiplier;
-      let maxDistSquared = 500 * distMult;
+      let maxDistSquared = 3600 * distMult; // Increased from 1800
       let volume = 0;
 
       if (distSquared > maxDistSquared) {

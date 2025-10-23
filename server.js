@@ -61,7 +61,8 @@ const availableMaps = {
     "Resort": {
         url: "https://gustavochico.com/paseito/resort.glb",
         startPosition: [-100, 75, 295],
-        skyColors: ['#1a94c4', '#2fc1fe', '#212324ff']
+        skyColors: ['#1a94c4', '#2fc1fe', '#212324ff'],
+        ambientTrack: "https://gustavochico.com/paseito/ambient_resort.mp3"
     },
     "Wind Waker": {
         url: "https://gustavochico.com/paseito/windWaker.glb",
@@ -103,7 +104,8 @@ let serverState = {
     voiceDistanceMultiplier: 1.0,
     playerScale: 1.0,
     maxSpeed: 2000,
-    acceleration: 600
+    acceleration: 600,
+    fallbackAmbientTrack: "https://gustavochico.com/paseito/ambient_resort.mp3"
 };
 
 

@@ -25,6 +25,12 @@ export class Communications {
       clearAllObjects: [],
       serverMessage: []
     };
+
+    this.micVolume = 0;
+    this.audioContext = null;
+    this.analyser = null;
+    this.micSource = null;
+    this.volumeData = null;
   }
 
   async initialize() {
@@ -36,6 +42,7 @@ export class Communications {
     this.callEventCallback("peerStream", { id: 'local', stream: this.localMediaStream, isLocal: true });
 
     // then initialize socket connection
+    this.monitorMicVolume();
     this.initSocketConnection();
   }
 
@@ -117,6 +124,34 @@ export class Communications {
     return dummyStream;
   }
 
+  monitorMicVolume() {
+    if (!this.localMediaStream || !this.localMediaStream.getAudioTracks().length || !this.localMediaStream.getAudioTracks()[0].enabled) {
+        console.warn("No active audio track to monitor.");
+        return;
+    }
+    if (!this.audioContext) {
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (!this.micSource) {
+        this.micSource = this.audioContext.createMediaStreamSource(this.localMediaStream);
+        this.analyser = this.audioContext.createAnalyser();
+        this.analyser.fftSize = 512;
+        this.micSource.connect(this.analyser);
+        this.volumeData = new Uint8Array(this.analyser.frequencyBinCount);
+    }
+
+    const checkVolume = () => {
+        if (this.socket?.disconnected) return; // Stop when disconnected
+        this.analyser.getByteFrequencyData(this.volumeData);
+        let sum = 0;
+        for (const amplitude of this.volumeData) {
+            sum += amplitude * amplitude;
+        }
+        this.micVolume = Math.sqrt(sum / this.volumeData.length);
+        requestAnimationFrame(checkVolume);
+    };
+    checkVolume();
+  }
 
   toggleMic() {
     if (!this.localMediaStream) return false;
@@ -125,6 +160,10 @@ export class Communications {
     if (audioTracks.length > 0) {
       if (audioTracks[0].label !== 'MediaStreamAudioDestinationNode') {
          audioTracks[0].enabled = !audioTracks[0].enabled;
+         if (audioTracks[0].enabled && !this.micSource) {
+            // If mic was off at init, start monitoring now.
+            this.monitorMicVolume();
+         }
          return audioTracks[0].enabled;
       }
     }
