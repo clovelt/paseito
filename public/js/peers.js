@@ -21,16 +21,6 @@ export function createPeerDOMElements(_id, ctx, reverbBuffer) {
   videoElement.setAttribute("playsinline", ""); // Important for iOS
   document.body.appendChild(videoElement);
 
-  let audioEl = document.createElement("audio");
-  audioEl.setAttribute("id", _id + "_audio");
-  audioEl.controls = "controls";
-  audioEl.volume = 0;
-  document.body.appendChild(audioEl);
-
-  audioEl.addEventListener("loadeddata", () => {
-    audioEl.play().catch(e => console.warn("Audio play failed:", e));
-  });
-
   // If audio context is ready, set up the audio graph
   if (ctx && peers[_id] && peers[_id].stream) {
       setupAudioProcessing(_id, peers[_id].stream, reverbBuffer);
@@ -89,9 +79,6 @@ export function updatePeerDOMElements({ id, stream, isLocal = false }) {
 export function cleanupPeerDomElements(_id) {
   let videoEl = document.getElementById(_id + "_video");
   if (videoEl) videoEl.remove();
-
-  let audioEl = document.getElementById(_id + "_audio");
-  if (audioEl) audioEl.remove();
 
   if (peers[_id] && peers[_id].sourceNode) {
       peers[_id].sourceNode.disconnect();
