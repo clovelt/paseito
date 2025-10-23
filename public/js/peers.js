@@ -40,15 +40,12 @@ export function createPeerDOMElements(_id, ctx, reverbBuffer) {
 function setupAudioProcessing(id, stream, reverbBuffer) {
     if (!audioContext || !stream.getAudioTracks().length || (peers[id] && peers[id].sourceNode)) return;
 
-    const pannerNode = audioContext.createPanner();
-    pannerNode.panningModel = 'HRTF';
-    pannerNode.distanceModel = 'inverse';
-    pannerNode.refDistance = 1;
-    pannerNode.maxDistance = 10000;
-    pannerNode.rolloffFactor = 2.5;
+    // --- TEMPORARY FIX to restore voice ---
+    // Bypassing the PannerNode and connecting directly to the output.
+    // This will disable 3D spatial audio but should make voices audible again.
     const sourceNode = audioContext.createMediaStreamSource(stream);
-    sourceNode.connect(pannerNode).connect(audioContext.destination);
-    peers[id] = { ...peers[id], sourceNode, pannerNode };
+    sourceNode.connect(audioContext.destination);
+    peers[id] = { ...peers[id], sourceNode };
 }
 
 export function updatePeerDOMElements({ id, stream, isLocal = false }) {
