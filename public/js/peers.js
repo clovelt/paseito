@@ -216,25 +216,42 @@ export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
   const listener = audioContext.listener;
   const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   const up = camera.up;
-  listener.positionX.setTargetAtTime(camera.position.x, audioContext.currentTime, 0.1);
-  listener.positionY.setTargetAtTime(camera.position.y, audioContext.currentTime, 0.1);
-  listener.positionZ.setTargetAtTime(camera.position.z, audioContext.currentTime, 0.1);
-  listener.forwardX.setTargetAtTime(forward.x, audioContext.currentTime, 0.1);
-  listener.forwardY.setTargetAtTime(forward.y, audioContext.currentTime, 0.1);
-  listener.forwardZ.setTargetAtTime(forward.z, audioContext.currentTime, 0.1);
-  listener.upX.setTargetAtTime(up.x, audioContext.currentTime, 0.1);
-  listener.upY.setTargetAtTime(up.y, audioContext.currentTime, 0.1);
-  listener.upZ.setTargetAtTime(up.z, audioContext.currentTime, 0.1);
+
+  // Check if the modern AudioParam properties exist for the listener
+  if (listener.positionX && typeof listener.positionX.setTargetAtTime === 'function') {
+    listener.positionX.setTargetAtTime(camera.position.x, audioContext.currentTime, 0.1);
+    listener.positionY.setTargetAtTime(camera.position.y, audioContext.currentTime, 0.1);
+    listener.positionZ.setTargetAtTime(camera.position.z, audioContext.currentTime, 0.1);
+    listener.forwardX.setTargetAtTime(forward.x, audioContext.currentTime, 0.1);
+    listener.forwardY.setTargetAtTime(forward.y, audioContext.currentTime, 0.1);
+    listener.forwardZ.setTargetAtTime(forward.z, audioContext.currentTime, 0.1);
+    listener.upX.setTargetAtTime(up.x, audioContext.currentTime, 0.1);
+    listener.upY.setTargetAtTime(up.y, audioContext.currentTime, 0.1);
+    listener.upZ.setTargetAtTime(up.z, audioContext.currentTime, 0.1);
+  } else if (typeof listener.setPosition === 'function' && typeof listener.setOrientation === 'function') {
+    // Fallback for older Web Audio API implementations
+    listener.setPosition(camera.position.x, camera.position.y, camera.position.z);
+    listener.setOrientation(forward.x, forward.y, forward.z, up.x, up.y, up.z);
+  } else {
+    console.warn("AudioListener API not fully supported or recognized. Cannot update listener position/orientation.");
+  }
 
   for (let id in peers) {
     if (peers[id] && peers[id].group && peers[id].pannerNode) {
       const peerPosition = peers[id].group.position;
       const panner = peers[id].pannerNode;
 
-      // Update panner position for 3D audio
-      panner.positionX.setTargetAtTime(peerPosition.x, audioContext.currentTime, 0.1);
-      panner.positionY.setTargetAtTime(peerPosition.y, audioContext.currentTime, 0.1);
-      panner.positionZ.setTargetAtTime(peerPosition.z, audioContext.currentTime, 0.1);
+      // Update panner position for 3D audio, checking for AudioParam properties
+      if (panner.positionX && typeof panner.positionX.setTargetAtTime === 'function') {
+        panner.positionX.setTargetAtTime(peerPosition.x, audioContext.currentTime, 0.1);
+        panner.positionY.setTargetAtTime(peerPosition.y, audioContext.currentTime, 0.1);
+        panner.positionZ.setTargetAtTime(peerPosition.z, audioContext.currentTime, 0.1);
+      } else if (typeof panner.setPosition === 'function') {
+        // Fallback for older PannerNode implementations
+        panner.setPosition(peerPosition.x, peerPosition.y, peerPosition.z);
+      } else {
+        console.warn(`PannerNode for peer ${id} API not fully supported or recognized. Cannot update panner position.`);
+      }
 
       const isShouting = peers[id].isShouting;
       panner.refDistance = (isShouting ? 4.0 : 1.0) * voiceDistanceMultiplier;
