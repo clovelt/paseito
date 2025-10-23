@@ -31,16 +31,14 @@
         display: none;
       }
       #local_video {
-        position: absolute;
-        width: 120px;
-        height: 120px;
-        right: 20px;
-        border: 2px solid rgba(255, 255, 255, 0.8);
-        border-radius: 8px;
-        z-index: 11;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
         transform: scaleX(-1);
         object-fit: cover;
         background-color: black;
+        margin-right: 10px;
+        border: 1px solid white;
       }
       .control-button {
         position: relative;
@@ -109,6 +107,8 @@
       .user-list-item {
         padding: 4px 8px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        display: flex;
+        align-items: center;
       }
       .user-list-item:last-child {
         border-bottom: none;
@@ -236,6 +236,7 @@
         </button>
       </div>
     </div>
+    <video id="local_video" autoplay muted playsinline></video>
     <div id="user-list-container"></div>
     <div id="joystick-container" style="position: absolute; bottom: 50px; left: 30px; width: 150px; height: 150px;"></div>
     

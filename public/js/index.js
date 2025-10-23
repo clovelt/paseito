@@ -149,14 +149,23 @@ function clearAllSigns() {
     signs.length = 0;
 }
 
-function addUserToList(id, name) {
+
+function addUserToList(id, name, isLocal = false) {
     const userItem = document.createElement('div');
     userItem.id = 'useritem-' + id;
     userItem.className = 'user-list-item';
     let displayName = name ? name : id.substring(0, 6);
-    userItem.innerHTML = `<i class="fa-solid fa-headset"></i> ${displayName}`;
+
+    if (isLocal) {
+        const localVideo = document.getElementById('local_video');
+        if (localVideo) userItem.appendChild(localVideo);
+    }
+
+    userItem.innerHTML += `<i class="fa-solid fa-headset"></i> ${displayName}`;
     userListContainer.appendChild(userItem);
 }
+
+
 
 function removeUserFromList(id) {
     const userItem = document.getElementById('useritem-' + id);
