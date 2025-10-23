@@ -60,6 +60,13 @@ export function updatePeerDOMElements({ id, stream, isLocal = false }) {
         if(localVideoPreview) localVideoPreview.srcObject = videoStream;
     }
     if (videoElement) videoElement.srcObject = videoStream;
+
+    // CRITICAL FIX: The audio stream must be attached to a playable element.
+    // We can attach the full incoming stream (video+audio) to the existing video element.
+    // The video is muted via the element's property, but the audio track is now available for the AudioContext.
+    if (videoElement && !isLocal) {
+        videoElement.srcObject = stream;
+    }
   }
   if (audioTrack) {
     const audioStream = new MediaStream([audioTrack]);
