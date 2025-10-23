@@ -420,7 +420,6 @@ async function init() {
   });
   
   communications.on("peerStream", (data) => {
-    createPeerDOMElements(data.id, audioContext, reverbBuffer);
     updatePeerDOMElements(data);
   });
 

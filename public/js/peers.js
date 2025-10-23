@@ -73,11 +73,12 @@ export function updatePeerDOMElements({ id, stream, isLocal = false }) {
     if (videoElement) videoElement.srcObject = videoStream;
   }
   if (audioTrack) {
+    const audioStream = new MediaStream([audioTrack]);
     if (peers[id]) {
-        peers[id].stream = new MediaStream([audioTrack]);
+        peers[id].stream = audioStream;
     }
     // If the audio context is ready, process the stream. Otherwise, it will be processed when the context is created.
-    if (audioContext && !isLocal) setupAudioProcessing(id, peers[id].stream);
+    if (audioContext && !isLocal) setupAudioProcessing(id, audioStream);
   }
 }
 
