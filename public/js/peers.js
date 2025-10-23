@@ -11,23 +11,23 @@ export function setAudioContext(ctx) {
 
 // --- DOM Utility Functions ---
 
-export function createPeerDOMElements(_id, ctx, reverbBuffer) {
+export function createPeerDOMElements(_id) {
   if (document.getElementById(_id + "_video")) return; // Already exists
 
   const videoElement = document.createElement("video");
   videoElement.id = _id + "_video";
   videoElement.autoplay = true;
   videoElement.muted = true;
-  videoElement.setAttribute("playsinline", ""); // Important for iOS
+  videoElement.setAttribute("playsinline", "");
   document.body.appendChild(videoElement);
 
   // If audio context is ready, set up the audio graph
-  if (ctx && peers[_id] && peers[_id].stream) {
-      setupAudioProcessing(_id, peers[_id].stream, reverbBuffer);
+  if (audioContext && peers[_id] && peers[_id].stream) {
+      setupAudioProcessing(_id, peers[_id].stream);
   }
 }
 
-function setupAudioProcessing(id, stream, reverbBuffer) {
+function setupAudioProcessing(id, stream) {
     if (!audioContext || !stream.getAudioTracks().length || (peers[id] && peers[id].sourceNode)) return;
 
     // Revert to GainNode for simple volume control
@@ -199,7 +199,7 @@ export function interpolatePositions() {
   }
 }
 
-export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
+export function updatePeerVolumes(voiceDistanceMultiplier) {
   for (let id in peers) {
     if (peers[id] && peers[id].group && peers[id].gainNode) {
       let distSquared = camera.position.distanceToSquared(peers[id].group.position);
@@ -216,26 +216,6 @@ export function updatePeerVolumes(voiceDistanceMultiplier, reverbBuffer) {
       }
       
       peers[id].gainNode.gain.setTargetAtTime(volume, audioContext.currentTime, 0.1);
-
-      // Handle reverb based on distance
-      if (reverbBuffer) {
-          const reverbCutoff = maxDistSquared * 0.2;
-          if (distSquared > reverbCutoff && !peers[id].reverbNode) {
-              // Add reverb when far away
-              const reverbNode = audioContext.createConvolver();
-              reverbNode.buffer = reverbBuffer;
-              peers[id].gainNode.disconnect();
-              peers[id].gainNode.connect(reverbNode);
-              reverbNode.connect(audioContext.destination);
-              peers[id].reverbNode = reverbNode;
-          } else if (distSquared <= reverbCutoff && peers[id].reverbNode) {
-              // Remove reverb when close
-              peers[id].reverbNode.disconnect();
-              peers[id].gainNode.disconnect();
-              peers[id].gainNode.connect(audioContext.destination);
-              delete peers[id].reverbNode;
-          }
-      }
     }
   }
 }

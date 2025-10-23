@@ -340,16 +340,6 @@ async function init() {
           console.log("[AUDIO] User interaction detected. Initializing AudioContext.");
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           setAudioContext(audioContext); // Pass context to peers module
-
-          // Isolate reverb loading so it doesn't block ambient audio
-          try {
-            const response = await fetch('https://gustavochico.com/paseito/reverb_impulse.mp3');
-            const arrayBuffer = await response.arrayBuffer();
-            reverbBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            console.log("[AUDIO] Reverb impulse response loaded successfully.");
-          } catch (reverbError) {
-            console.error("[AUDIO] Failed to load reverb, but continuing with other audio.", reverbError);
-          }
           
           ambientAudio = new Audio();
           ambientAudio.loop = true;
@@ -412,7 +402,7 @@ async function init() {
 
       for (let id in initialPeers) {
           if (id !== communications.socket.id) {
-              createPeerDOMElements(id);
+              createPeerDOMElements(id); // No longer passing reverbBuffer
               addPeer(id, initialPeers[id], worldState.playerScale);
               addUserToList(id, initialPeers[id].name);
           }
@@ -765,7 +755,7 @@ function update() {
     controls.updateMovementSettings(currentSettings);
   }
 
-  if (frameCount % 25 === 0) updatePeerVolumes(worldState.voiceDistanceMultiplier, reverbBuffer);
+  if (frameCount % 25 === 0) updatePeerVolumes(worldState.voiceDistanceMultiplier);
   if (frameCount % 10 === 0 && communications.socket) {
     communications.sendPosition(getPlayerData());
   }
