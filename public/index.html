@@ -10,7 +10,6 @@
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
 
-    <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
 
     <script type="importmap">
@@ -169,6 +168,14 @@
         width: 100%;
         padding: 5px;
       }
+      #admin-status {
+        color: white;
+        font-family: sans-serif;
+        font-size: 12px;
+        line-height: 1.35;
+        max-width: 210px;
+        white-space: pre-line;
+      }
        #admin-panel button:disabled {
         background-color: #111;
         color: #777;
@@ -242,8 +249,12 @@
     
     <button id="jump-button" class="control-button"><i class="fa-solid fa-arrow-up"></i></button>
     <div id="admin-panel">
+      <div id="admin-status">Admin unlocked.</div>
+      <button id="admin-refresh">Refresh Status</button>
       <button id="admin-broadcast-message">Broadcast Message</button>
       <button id="admin-teleport-all">Teleport All to Center</button>
+      <button id="admin-respawn-all">Respawn Everyone</button>
+      <button id="admin-reset-settings">Reset Room Settings</button>
       <button id="admin-delete-all">Delete All Signs</button>
       <div id="map-selector-container" class="slider-container" style="display: none;">
         <label for="map-select">Change Map:</label>

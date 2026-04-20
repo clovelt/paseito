@@ -34,6 +34,8 @@ let isAudioUnlocked = false;
 let worldState = {
     voiceDistanceMultiplier: 1.0,
     playerScale: 1.0,
+    maxSpeed: 750,
+    acceleration: 600,
     fallbackAmbientTrack: ''
 };
 
@@ -41,6 +43,7 @@ let isHighQuality = true;
 const COLLISION_LAYER = 3;
 let frameCount = 0;
 let signs = [];
+let isAdminUnlocked = false;
 
 // --- UI Elements ---
 const userListContainer = document.getElementById('user-list-container');
@@ -60,6 +63,10 @@ const adminPanel = document.getElementById('admin-panel');
 const adminDeleteAllButton = document.getElementById('admin-delete-all');
 const adminBroadcastButton = document.getElementById('admin-broadcast-message');
 const adminTeleportButton = document.getElementById('admin-teleport-all');
+const adminRespawnButton = document.getElementById('admin-respawn-all');
+const adminResetSettingsButton = document.getElementById('admin-reset-settings');
+const adminRefreshButton = document.getElementById('admin-refresh');
+const adminStatus = document.getElementById('admin-status');
 const adminChangeMapButton = document.getElementById('admin-change-map');
 const mapSelectorContainer = document.getElementById('map-selector-container');
 const mapSelect = document.getElementById('map-select');
@@ -68,6 +75,18 @@ const sizeSlider = document.getElementById('size-slider');
 const speedSlider = document.getElementById('speed-slider');
 const accelSlider = document.getElementById('accel-slider');
 
+function disposeObject3D(object) {
+    object.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+            const materials = Array.isArray(child.material) ? child.material : [child.material];
+            materials.forEach((material) => {
+                if (material.map) material.map.dispose();
+                material.dispose();
+            });
+        }
+    });
+}
 
 function onNewSign(msg) {
   const POST_HEIGHT = 4;
@@ -145,6 +164,7 @@ function onNewSign(msg) {
 function clearAllSigns() {
     for (const sign of signs) {
         scene.remove(sign);
+        disposeObject3D(sign);
     }
     signs.length = 0;
 }
@@ -161,7 +181,10 @@ function addUserToList(id, name, isLocal = false) {
         if (localVideo) userItem.appendChild(localVideo);
     }
 
-    userItem.innerHTML += `<i class="fa-solid fa-headset"></i> ${displayName}`;
+    const icon = document.createElement('i');
+    icon.className = 'fa-solid fa-headset';
+    userItem.appendChild(icon);
+    userItem.appendChild(document.createTextNode(` ${displayName}`));
     userListContainer.appendChild(userItem);
 }
 
@@ -217,6 +240,7 @@ function playAmbientTrack() {
 function loadMap(mapUrl, fallbackUrl) {
     if (currentMapModel) {
         scene.remove(currentMapModel);
+        disposeObject3D(currentMapModel);
         currentMapModel = null;
     }
     currentMapUrl = mapUrl; // Store the current map URL reliably
@@ -244,8 +268,8 @@ function loadMap(mapUrl, fallbackUrl) {
             case "Resort":
                 model.scale.set(0.3, 0.3, 0.3);
                 break;
-            case "De_Dust2":
-                model.scale.set(0.2, 0.2, 0.2);
+            case "Dust2":
+                model.scale.set(1, 1, 1);
                 break;
             case "Wind Waker":
                 model.scale.set(0.1, 0.1, 0.1);
@@ -320,10 +344,40 @@ function applyQualitySettings(isHigh) {
 function applySettings(state) {
     if (!state) return;
     
-    if (state.voiceDistanceMultiplier) updateSetting('voiceDistanceMultiplier', state.voiceDistanceMultiplier, true);
-    if (state.playerScale) updateSetting('playerScale', state.playerScale, true);
-    if (state.maxSpeed) updateSetting('maxSpeed', state.maxSpeed, true);
-    if (state.acceleration) updateSetting('acceleration', state.acceleration, true);
+    if (Number.isFinite(Number(state.voiceDistanceMultiplier))) updateSetting('voiceDistanceMultiplier', state.voiceDistanceMultiplier, true);
+    if (Number.isFinite(Number(state.playerScale))) updateSetting('playerScale', state.playerScale, true);
+    if (Number.isFinite(Number(state.maxSpeed))) updateSetting('maxSpeed', state.maxSpeed, true);
+    if (Number.isFinite(Number(state.acceleration))) updateSetting('acceleration', state.acceleration, true);
+}
+
+function updateAdminSnapshot(snapshot) {
+    if (!snapshot || !adminStatus) return;
+    const currentMap = Object.entries(worldMapData).find(([, data]) => data.url === snapshot.state.currentMapUrl)?.[0] || 'Unknown map';
+    const peerLines = snapshot.peers.length
+        ? snapshot.peers.map((peer) => `${peer.name || peer.id.slice(0, 6)}${peer.isShouting ? ' (shouting)' : ''}`).join(', ')
+        : 'Nobody else yet';
+    const objectCount = snapshot.objectCount === null ? 'unknown' : snapshot.objectCount;
+    adminStatus.textContent = [
+        `Map: ${currentMap}`,
+        `Players: ${snapshot.peers.length}`,
+        `Signs: ${objectCount}`,
+        `Speed: ${snapshot.state.maxSpeed}`,
+        `Scale: ${snapshot.state.playerScale}`,
+        `Here: ${peerLines}`
+    ].join('\n');
+}
+
+function requestAdminSnapshot() {
+    if (!isAdminUnlocked || !communications?.socket) return;
+    communications.socket.emit("admin:getSnapshot", updateAdminSnapshot);
+}
+
+function unlockAdminPanel(snapshot) {
+    isAdminUnlocked = true;
+    adminPanel.style.display = 'flex';
+    adminTeleportButton.textContent = "Teleport All to Me";
+    updateAdminSnapshot(snapshot);
+    requestAdminSnapshot();
 }
 
 
@@ -435,7 +489,10 @@ async function init() {
   communications.on("clearAllObjects", clearAllSigns);
   communications.on("serverMessage", (message) => { alert(message); });
 
-  communications.socket.on("changeMap", (mapUrl) => loadMap(mapUrl, fallbackMapUrl));
+  communications.socket.on("changeMap", (mapUrl) => {
+      loadMap(mapUrl, fallbackMapUrl);
+      if (isAdminUnlocked) requestAdminSnapshot();
+  });
   communications.socket.on("updateSetting", ({ key, value }) => updateSetting(key, value));
 
   
@@ -553,19 +610,28 @@ async function init() {
   });
 
   adminMenuButton.addEventListener('click', () => {
-    const password = prompt("Enter admin password:");
-    if (password === "gazpacho") {
-      adminPanel.style.display = 'flex';
-      adminTeleportButton.textContent = "Teleport All to Me";
-    } else if (password) {
-      alert("Incorrect password.");
+    if (isAdminUnlocked) {
+        unlockAdminPanel();
+        return;
     }
+
+    const password = prompt("Enter admin password:");
+    if (!password) return;
+    communications.socket.emit("admin:auth", password, (response) => {
+        if (response?.ok) {
+            unlockAdminPanel(response.snapshot);
+        } else {
+            alert("Incorrect password.");
+        }
+    });
   });
+
+  adminRefreshButton.addEventListener('click', requestAdminSnapshot);
 
   adminDeleteAllButton.addEventListener('click', () => {
     if (confirm("Are you sure you want to delete ALL world objects from the server? This cannot be undone.")) {
         communications.socket.emit("admin:deleteAllObjects");
-        adminPanel.style.display = 'none';
+        requestAdminSnapshot();
     }
   });
 
@@ -573,14 +639,28 @@ async function init() {
       const message = prompt("Enter message to broadcast to all users:");
       if (message) {
           communications.socket.emit("admin:broadcastMessage", message);
-          adminPanel.style.display = 'none';
+          requestAdminSnapshot();
       }
   });
   
   adminTeleportButton.addEventListener('click', () => {
       if(confirm("Are you sure you want to teleport all users to your current location?")) {
           communications.socket.emit("admin:teleportAllToMe");
-          adminPanel.style.display = 'none';
+          requestAdminSnapshot();
+      }
+  });
+
+  adminRespawnButton.addEventListener('click', () => {
+      if(confirm("Respawn everyone at the current map start?")) {
+          communications.socket.emit("admin:respawnAll");
+          requestAdminSnapshot();
+      }
+  });
+
+  adminResetSettingsButton.addEventListener('click', () => {
+      if(confirm("Reset movement, scale, and voice distance settings for everyone?")) {
+          communications.socket.emit("admin:resetSettings");
+          requestAdminSnapshot();
       }
   });
 
@@ -588,7 +668,7 @@ async function init() {
       const selectedMap = mapSelect.value;
       if (selectedMap && confirm(`Are you sure you want to change the map for everyone to ${mapSelect.options[mapSelect.selectedIndex].text}?`)) {
           communications.socket.emit("admin:changeMap", selectedMap);
-          adminPanel.style.display = 'none';
+          requestAdminSnapshot();
       }
   });
   
@@ -597,6 +677,7 @@ async function init() {
       slider.addEventListener('input', () => {
           valueLabel.textContent = slider.value;
           communications.socket.emit("admin:updateSetting", { key, value: slider.value });
+          requestAdminSnapshot();
       });
   };
   setupSlider(voiceSlider, 'voiceDistanceMultiplier', document.getElementById('voice-value'));
@@ -688,10 +769,11 @@ async function init() {
 
 function updateSetting(key, value, isInitial = false) {
     const numericValue = parseFloat(value);
+    if (!Number.isFinite(numericValue)) return;
     switch(key) {
         case 'voiceDistanceMultiplier':
             worldState.voiceDistanceMultiplier = numericValue;
-            if (!isInitial) voiceSlider.value = numericValue;
+            voiceSlider.value = numericValue;
             document.getElementById('voice-value').textContent = numericValue;
             break;
         case 'playerScale':
@@ -701,27 +783,28 @@ function updateSetting(key, value, isInitial = false) {
                     peers[id].group.scale.set(numericValue, numericValue, numericValue);
                 }
             }
-            controls.setCameraHeight(6.0 * numericValue);
-            if (!isInitial) sizeSlider.value = numericValue;
+            controls.setCameraHeight(5.0 * numericValue);
+            sizeSlider.value = numericValue;
             document.getElementById('size-value').textContent = numericValue;
             break;
         case 'maxSpeed':
-            // We'll let the update loop handle this based on running state
-            if (!isInitial) speedSlider.value = numericValue;
+            worldState.maxSpeed = numericValue;
+            speedSlider.value = numericValue;
             document.getElementById('speed-value').textContent = numericValue;
             break;
         case 'acceleration':
-            // Store the base acceleration, the update loop will apply it.
+            worldState.acceleration = numericValue;
             if (controls) {
                 controls.baseAcceleration = numericValue;
             } else {
                 // controls might not be initialized yet
                 setTimeout(() => updateSetting(key, value, isInitial), 100);
             }
-            if (!isInitial) accelSlider.value = numericValue;
+            accelSlider.value = numericValue;
             document.getElementById('accel-value').textContent = numericValue;
             break;
     }
+    if (!isInitial) requestAdminSnapshot();
 }
 
 
@@ -746,8 +829,8 @@ function update() {
     runButton.classList.toggle('active', controls.isRunning);
     // Apply different acceleration and speed when running
     const currentSettings = {
-        maxSpeed: parseFloat(document.getElementById('speed-slider').value),
-        acceleration: controls.baseAcceleration || parseFloat(document.getElementById('accel-slider').value) // Restore baseAcceleration
+        maxSpeed: worldState.maxSpeed,
+        acceleration: worldState.acceleration
     };
     if (controls.isRunning) {
         currentSettings.acceleration *= 3; // Triple acceleration when running

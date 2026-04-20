@@ -5,47 +5,24 @@
  */
 
 const express = require("express");
+const { Readable } = require("stream");
 const app = express();
 
 let db;
 let userCounter = 1;
+const worldObjects = [];
 
-if (process.env.DATABASE_URL) {
-  const { Pool } = require('pg');
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-  });
-
-  db = {
-    initialize: async () => {
-      await pool.query(`CREATE TABLE IF NOT EXISTS boxes (id SERIAL PRIMARY KEY, type VARCHAR(50), data JSONB);`);
-      console.log("SUCCESS: Connected to PostgreSQL database.");
-    },
-    find: async (query, callback) => {
-      const result = await pool.query('SELECT type, data FROM boxes');
-      callback(null, result.rows);
-    },
-    insert: async (doc, callback) => {
-      await pool.query('INSERT INTO boxes (type, data) VALUES ($1, $2)', [doc.type, doc.data]);
-      if (callback) callback(null, doc);
-    },
-    deleteAll: async (callback) => {
-      await pool.query('TRUNCATE TABLE boxes RESTART IDENTITY;');
-      if(callback) callback(null);
-    }
-  };
-
-  db.initialize().catch(err => console.error("Database initialization failed:", err));
-
-} else {
-  console.warn("WARNING: No DATABASE_URL found. Database features are disabled for local testing.");
-  db = {
-    find: (query, callback) => callback(null, []),
-    insert: (doc, callback) => { if (callback) callback(null, doc); },
-    deleteAll: (callback) => { if(callback) callback(null); }
-  };
-}
+db = {
+  find: (query, callback) => callback(null, worldObjects.slice()),
+  insert: (doc, callback) => {
+    worldObjects.push(doc);
+    if (callback) callback(null, doc);
+  },
+  deleteAll: (callback) => {
+    worldObjects.length = 0;
+    if(callback) callback(null);
+  }
+};
 
 app.use(express.static("public"));
 
@@ -56,6 +33,8 @@ const server = app.listen(port, "0.0.0.0", () => {
 
 const io = require("socket.io")().listen(server);
 let peers = {};
+const adminSockets = new Set();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "gazpacho";
 
 const availableMaps = {
     "Resort": {
@@ -95,7 +74,55 @@ const availableMaps = {
         skyColors: ['#1a94c4', '#2fc1fe', '#212324ff']
     }
 };
-const fallbackMap = 'https://gustavochico.com/paseito/resort.glb';
+
+for (const [name, map] of Object.entries(availableMaps)) {
+    const encodedName = encodeURIComponent(name);
+    map.sourceUrl = map.url;
+    map.url = `/api/maps/${encodedName}/model`;
+    if (map.ambientTrack) {
+        map.ambientSourceUrl = map.ambientTrack;
+        map.ambientTrack = `/api/maps/${encodedName}/ambient`;
+    }
+}
+
+const fallbackMap = availableMaps.Resort.url;
+
+async function proxyMapAsset(req, res, assetKey, contentType) {
+    const map = availableMaps[req.params.name];
+    const sourceUrl = map?.[assetKey];
+    if (!sourceUrl) {
+        res.status(404).send("Map asset not found");
+        return;
+    }
+
+    try {
+        const upstream = await fetch(sourceUrl, {
+            headers: {
+                "Accept": "application/octet-stream,*/*",
+                "User-Agent": "undici"
+            }
+        });
+        if (!upstream.ok || !upstream.body) {
+            res.status(upstream.status || 502).send("Unable to fetch map asset");
+            return;
+        }
+
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.setHeader("Content-Type", contentType);
+        Readable.fromWeb(upstream.body).pipe(res);
+    } catch (error) {
+        console.error(`Failed to proxy ${sourceUrl}:`, error);
+        res.status(502).send("Unable to fetch map asset");
+    }
+}
+
+app.get("/api/maps/:name/model", (req, res) => {
+    proxyMapAsset(req, res, "sourceUrl", "model/gltf-binary");
+});
+
+app.get("/api/maps/:name/ambient", (req, res) => {
+    proxyMapAsset(req, res, "ambientSourceUrl", "audio/mpeg");
+});
 
 let serverState = {
     currentMapUrl: availableMaps["Resort"].url, // Store URL for simplicity
@@ -108,6 +135,61 @@ let serverState = {
     fallbackAmbientTrack: "https://gustavochico.com/paseito/ambient_resort.mp3"
 };
 
+const defaultServerState = { ...serverState };
+const numericSettings = {
+    voiceDistanceMultiplier: { min: 0.25, max: 8 },
+    playerScale: { min: 0.2, max: 3 },
+    maxSpeed: { min: 100, max: 2500 },
+    acceleration: { min: 100, max: 2500 }
+};
+
+function clampNumber(value, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return Math.min(max, Math.max(min, number));
+}
+
+function isVector3(value) {
+    return Array.isArray(value) && value.length === 3 && value.every((number) => Number.isFinite(number) && Math.abs(number) < 1_000_000);
+}
+
+function isQuaternion(value) {
+    return Array.isArray(value) && value.length === 4 && value.every(Number.isFinite);
+}
+
+function sanitizeWorldData(data) {
+    if (!data || data.type !== "sign" || !data.data) return null;
+    const text = typeof data.data.text === "string" ? data.data.text.trim().slice(0, 180) : "";
+    if (!text || !isVector3(data.data.position) || !isQuaternion(data.data.rotation)) return null;
+    return {
+        type: "sign",
+        data: {
+            position: data.data.position,
+            rotation: data.data.rotation,
+            text
+        }
+    };
+}
+
+function requireAdmin(socket, action) {
+    if (adminSockets.has(socket.id)) return true;
+    console.warn(`Rejected admin command "${action}" from unauthenticated socket ${socket.id}`);
+    socket.emit("serverMessage", "Admin command rejected. Unlock the admin panel first.");
+    return false;
+}
+
+function getPeerSnapshot() {
+    return {
+        peers: Object.entries(peers).map(([id, peer]) => ({
+            id,
+            name: peer.name,
+            position: peer.position,
+            isShouting: !!peer.isShouting
+        })),
+        state: serverState,
+        objectCount: null
+    };
+}
 
 function main() {
   setupSocketServer();
@@ -144,7 +226,7 @@ function setupSocketServer() {
 
     socket.on("move", (data) => {
       // Add validation to prevent server state corruption
-      if (peers[socket.id] && data && Array.isArray(data.position) && Array.isArray(data.rotation)) {
+      if (peers[socket.id] && data && isVector3(data.position) && isQuaternion(data.rotation)) {
         peers[socket.id].position = data.position;
         peers[socket.id].rotation = data.rotation;
         peers[socket.id].isShouting = !!data.isShouting;
@@ -152,9 +234,11 @@ function setupSocketServer() {
     });
 
     socket.on("data", (data) => {
-      db.insert(data, (err) => {
+      const sanitized = sanitizeWorldData(data);
+      if (!sanitized) return;
+      db.insert(sanitized, (err) => {
         if (err) return console.error("DB insert error:", err);
-        io.sockets.emit("data", data);
+        io.sockets.emit("data", sanitized);
       });
     });
 
@@ -162,7 +246,28 @@ function setupSocketServer() {
       if (to in peers) io.to(to).emit("signal", to, from, data);
     });
 
+    socket.on("admin:auth", (password, callback) => {
+        const ok = password === ADMIN_PASSWORD;
+        if (ok) {
+            adminSockets.add(socket.id);
+            console.log(`Admin unlocked for ${socket.id}`);
+        } else {
+            console.warn(`Failed admin unlock attempt from ${socket.id}`);
+        }
+        if (callback) callback({ ok, snapshot: ok ? getPeerSnapshot() : null });
+    });
+
+    socket.on("admin:getSnapshot", (callback) => {
+        if (!requireAdmin(socket, "getSnapshot")) return;
+        db.find({}, (err, docs) => {
+            const snapshot = getPeerSnapshot();
+            snapshot.objectCount = err || !docs ? null : docs.length;
+            if (callback) callback(snapshot);
+        });
+    });
+
     socket.on("admin:deleteAllObjects", () => {
+        if (!requireAdmin(socket, "deleteAllObjects")) return;
         console.log(`Admin command: deleteAllObjects received from ${socket.id}`);
         db.deleteAll((err) => {
             if (err) return console.error("DB deleteAll error:", err);
@@ -171,6 +276,7 @@ function setupSocketServer() {
     });
 
     socket.on("admin:changeMap", (mapUrl) => {
+        if (!requireAdmin(socket, "changeMap")) return;
         const isValidMap = Object.values(availableMaps).some(map => map.url === mapUrl);
         if (isValidMap) {
             console.log(`Admin command: changeMap to ${mapUrl} from ${socket.id}`);
@@ -180,19 +286,26 @@ function setupSocketServer() {
     });
 
     socket.on("admin:updateSetting", ({ key, value }) => {
+        if (!requireAdmin(socket, "updateSetting")) return;
         console.log(`Admin command: updateSetting ${key} to ${value} from ${socket.id}`);
-        if (key in serverState) {
-            serverState[key] = parseFloat(value); // Ensure value is a number
+        if (key in numericSettings) {
+            const range = numericSettings[key];
+            const parsed = clampNumber(value, range.min, range.max);
+            if (parsed === null) return;
+            serverState[key] = parsed;
             io.sockets.emit("updateSetting", { key, value: serverState[key] });
         }
     });
 
     socket.on("admin:broadcastMessage", (message) => {
+        if (!requireAdmin(socket, "broadcastMessage")) return;
+        if (typeof message !== "string" || !message.trim()) return;
         console.log(`Admin command: broadcast "${message}" from ${socket.id}`);
-        io.sockets.emit("serverMessage", `ADMIN: ${message}`);
+        io.sockets.emit("serverMessage", `ADMIN: ${message.trim().slice(0, 300)}`);
     });
 
     socket.on("admin:teleportAllToMe", () => {
+        if (!requireAdmin(socket, "teleportAllToMe")) return;
         console.log(`Admin command: teleportAllToMe from ${socket.id}`);
         if (peers[socket.id]) {
             const adminPosition = peers[socket.id].position;
@@ -201,13 +314,36 @@ function setupSocketServer() {
                     peers[id].position = adminPosition.slice(); // Use slice to create a copy
                 }
             }
+            io.sockets.emit("positions", peers);
+        }
+    });
+
+    socket.on("admin:respawnAll", () => {
+        if (!requireAdmin(socket, "respawnAll")) return;
+        const currentMap = Object.values(availableMaps).find(map => map.url === serverState.currentMapUrl) || availableMaps.Resort;
+        for (const id in peers) {
+            peers[id].position = currentMap.startPosition.slice();
+        }
+        io.sockets.emit("positions", peers);
+        io.sockets.emit("serverMessage", "ADMIN: Everyone was sent back to spawn.");
+    });
+
+    socket.on("admin:resetSettings", () => {
+        if (!requireAdmin(socket, "resetSettings")) return;
+        serverState.voiceDistanceMultiplier = defaultServerState.voiceDistanceMultiplier;
+        serverState.playerScale = defaultServerState.playerScale;
+        serverState.maxSpeed = defaultServerState.maxSpeed;
+        serverState.acceleration = defaultServerState.acceleration;
+        for (const key of Object.keys(numericSettings)) {
+            io.sockets.emit("updateSetting", { key, value: serverState[key] });
         }
     });
 
     socket.on("disconnect", () => {
       delete peers[socket.id];
+      adminSockets.delete(socket.id);
       io.sockets.emit("peerDisconnection", socket.id);
-      console.log(`Peer ${socket.id} diconnected, there are ${io.engine.clientsCount} peer(s) connected.`);
+      console.log(`Peer ${socket.id} disconnected, there are ${io.engine.clientsCount} peer(s) connected.`);
     });
   });
 }

@@ -28,6 +28,8 @@ export class FirstPersonControls {
         this.onPointerDownLon = 0;
         this.onPointerDownLat = 0;
         this.isUserInteracting = false;
+        this.pointerUnlockHoldTimer = null;
+        this.pointerUnlockHoldMs = 180;
 
         this.lon = 180
         this.lat = 0
@@ -130,12 +132,45 @@ export class FirstPersonControls {
                 document.addEventListener('mousemove', onMouseMove);
             } else {
                 document.removeEventListener('mousemove', onMouseMove);
+                this.clearControls();
             }
         });
 
-        this.renderer.domElement.addEventListener('click', () => {
-            this.renderer.domElement.requestPointerLock();
+        const requestPointerLock = () => {
+            const lockRequest = this.renderer.domElement.requestPointerLock();
+            if (lockRequest?.catch) lockRequest.catch(() => {});
+        };
+
+        const clearPointerUnlockHold = () => {
+            if (this.pointerUnlockHoldTimer) {
+                window.clearTimeout(this.pointerUnlockHoldTimer);
+                this.pointerUnlockHoldTimer = null;
+            }
+        };
+
+        this.renderer.domElement.addEventListener('pointerdown', (event) => {
+            if (event.pointerType === 'touch' || event.button !== 0) return;
+
+            if (document.pointerLockElement === this.renderer.domElement) {
+                clearPointerUnlockHold();
+                this.pointerUnlockHoldTimer = window.setTimeout(() => {
+                    this.pointerUnlockHoldTimer = null;
+                    if (document.pointerLockElement === this.renderer.domElement) {
+                        this.clearControls();
+                        document.exitPointerLock();
+                    }
+                }, this.pointerUnlockHoldMs);
+                return;
+            }
+
+            requestPointerLock();
         });
+
+        document.addEventListener('pointerup', (event) => {
+            if (event.pointerType === 'touch' || event.button !== 0) return;
+            clearPointerUnlockHold();
+        });
+        document.addEventListener('pointercancel', clearPointerUnlockHold);
 
         const joystickZone = document.getElementById('joystick-container');
         
@@ -177,6 +212,9 @@ export class FirstPersonControls {
 
         // Keyboard movement controls
         document.addEventListener('keydown', (event) => {
+            if (!('ontouchstart' in window) && document.pointerLockElement !== this.renderer.domElement) return;
+            if (event.target?.matches?.('input, textarea, select, button')) return;
+
             switch (event.code) {
                 case 'ArrowUp':
                 case 'KeyW': this.moveForward = true; break;

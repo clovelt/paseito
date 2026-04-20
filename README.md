@@ -4,7 +4,7 @@ Simulador de tours turísiticos digitales. Roquekes x Clovelt 2025.
 
 Digital tour simulator. Roquekes x Clovelt 2025.
 
-Powered by [three.js](threejs.org), allows multiplayer scenes with integrated audio/video capabilities. It uses a node server running socket.io to provide multiplayer functionality as well as WebRTC signaling.
+Powered by [three.js](https://threejs.org/), allows multiplayer scenes with integrated audio/video capabilities. The current local server uses Socket.IO for multiplayer presence and WebRTC signaling while the production move targets Cloudflare.
 
 ![image of multiplayer 3D scene](/docs/images/paseito.gif)
 
@@ -24,6 +24,10 @@ Powered by [three.js](threejs.org), allows multiplayer scenes with integrated au
    $ npm start
    ```
 4. Navigate to `http://localhost:8080` on your browser.
+
+## Cloudflare:
+
+Render/Postgres-specific setup has been removed. Cloudflare Workers support is in [cloudflare/worker.js](./cloudflare/worker.js), with Durable Object room state and native WebSocket signaling. See [CLOUDFLARE.md](./CLOUDFLARE.md) for local Wrangler dev and deploy steps.
 
 ## Technology:
 

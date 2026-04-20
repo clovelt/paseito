@@ -4,6 +4,92 @@
  *
  */
 
+class NativeRoomSocket {
+  constructor(url) {
+    this.url = url;
+    this.id = null;
+    this.connected = false;
+    this.disconnected = true;
+    this.handlers = {};
+    this.callbacks = new Map();
+    this.callbackCounter = 1;
+    this.queue = [];
+    this.ws = new WebSocket(url);
+
+    this.ws.addEventListener('open', () => {
+      this.connected = true;
+      this.disconnected = false;
+      this.flushQueue();
+    });
+
+    this.ws.addEventListener('message', (event) => this.handleMessage(event));
+    this.ws.addEventListener('close', () => {
+      this.connected = false;
+      this.disconnected = true;
+    });
+    this.ws.addEventListener('error', () => {
+      this.connected = false;
+      this.disconnected = true;
+    });
+  }
+
+  on(event, callback) {
+    this.handlers[event] = this.handlers[event] || [];
+    this.handlers[event].push(callback);
+    if (event === 'connect' && this.connected && this.id) {
+      callback();
+    }
+  }
+
+  emit(event, ...args) {
+    let requestId;
+    const maybeCallback = args[args.length - 1];
+    if (typeof maybeCallback === 'function') {
+      requestId = `cb:${this.callbackCounter++}`;
+      this.callbacks.set(requestId, maybeCallback);
+      args.pop();
+    }
+
+    const payload = JSON.stringify({ event, args, requestId });
+    if (this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(payload);
+    } else {
+      this.queue.push(payload);
+    }
+  }
+
+  flushQueue() {
+    while (this.queue.length && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(this.queue.shift());
+    }
+  }
+
+  handleMessage(event) {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+
+    if (message.replyTo) {
+      const callback = this.callbacks.get(message.replyTo);
+      if (callback) {
+        this.callbacks.delete(message.replyTo);
+        callback(message.data);
+      }
+      return;
+    }
+
+    if (message.event === 'connect') {
+      this.id = message.args?.[0];
+    }
+
+    const handlers = this.handlers[message.event] || [];
+    handlers.forEach((callback) => callback(...(message.args || [])));
+  }
+}
+
 export class Communications {
   constructor() {
     // socket.io
@@ -43,7 +129,7 @@ export class Communications {
 
     // then initialize socket connection
     this.monitorMicVolume();
-    this.initSocketConnection();
+    await this.initSocketConnection();
   }
 
   // add a callback for a given event
@@ -216,9 +302,40 @@ export class Communications {
     });
   }
 
-  initSocketConnection() {
-    console.log("Initializing socket.io...");
-    this.socket = io(window.location.origin);
+  async loadSocketIoClient() {
+    if (typeof io === 'function') return true;
+    if (window.PASEITO_FORCE_NATIVE_WS) return false;
+    const shouldProbeSocketIo = window.PASEITO_USE_SOCKET_IO || window.location.port === '8080';
+    if (!shouldProbeSocketIo) return false;
+
+    try {
+      const response = await fetch('/socket.io/socket.io.js', { method: 'HEAD' });
+      if (!response.ok) return false;
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/socket.io/socket.io.js';
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+      return typeof io === 'function';
+    } catch {
+      return false;
+    }
+  }
+
+  async initSocketConnection() {
+    const shouldUseSocketIo = await this.loadSocketIoClient();
+    if (shouldUseSocketIo) {
+      console.log("Initializing socket.io...");
+      this.socket = io(window.location.origin);
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const room = new URLSearchParams(window.location.search).get('room') || 'main';
+      const wsUrl = window.PASEITO_WS_URL || `${protocol}//${window.location.host}/ws?room=${encodeURIComponent(room)}`;
+      console.log("Initializing native WebSocket:", wsUrl);
+      this.socket = new NativeRoomSocket(wsUrl);
+    }
 
     this.socket.on("connect", () => {
       console.log("My socket ID:", this.socket.id);

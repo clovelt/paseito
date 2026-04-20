@@ -7,6 +7,7 @@ import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { Sky } from "three/addons/objects/Sky.js";
 
 export let camera, renderer, scene, composer, dirLight;
+let skyTexture;
 
 export function initWorld() {
     scene = new THREE.Scene();
@@ -20,7 +21,11 @@ export function initWorld() {
     camera.layers.enable(3); // COLLISION_LAYER
     scene.add(camera);
 
-    renderer = new THREE.WebGLRenderer({ antialiasing: true, preserveDrawingBuffer: true });
+    renderer = new THREE.WebGLRenderer({
+      antialiasing: true,
+      preserveDrawingBuffer: true,
+      powerPreference: 'high-performance'
+    });
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -101,7 +106,8 @@ export function updateSkybox(colors = ['#1a94c4', '#2fc1fe', '#a0d8ef']) {
   gradient.addColorStop(1, colors[2]);
   context.fillStyle = gradient;
   context.fillRect(0, 0, 1, 128);
-  const skyTexture = new THREE.CanvasTexture(canvas);
+  if (skyTexture) skyTexture.dispose();
+  skyTexture = new THREE.CanvasTexture(canvas);
   scene.background = skyTexture;
 }
 
